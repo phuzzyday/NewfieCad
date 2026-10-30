@@ -1,0 +1,4 @@
+# Keep each launcher runnable on its own system, and never touch the binaries.
+*.sh   text eol=lf
+*.bat  text eol=crlf
+*.wasm binary
