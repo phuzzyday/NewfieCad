@@ -20,12 +20,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----
-
-This licence covers NewfieCad's own files. The libraries in the lib folder are
-not covered by it; each keeps its own licence, included next to it:
-
-- lib/three                   three.js            MIT
-- lib/replicad                replicad            MIT
-- lib/replicad-opencascadejs  OpenCascade build   LGPL 2.1
-- lib/planegcs                planegcs            LGPL 2.1
