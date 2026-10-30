@@ -4,6 +4,9 @@ A browser-based parametric CAD app for designing 3D-printable parts, with Fusion
 It uses the OpenCascade geometry kernel (through [replicad](https://replicad.xyz)) for real solids, fillets and shells.
 It exports STL and 3MF for your slicer.
 
+**Try it in your browser:** <https://phuzzyday.github.io/NewfieCad/> (nothing to install; a Chrome-based browser works best).
+Or download it and run it on your own computer, offline, as described below.
+
 ## Running it
 
 You need Python 3 (no other installs). No internet connection is needed: the libraries are in the `lib` folder.
