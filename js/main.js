@@ -119,6 +119,7 @@ class App {
     loadSolver().catch(() => this.setStatus('The sketch constraint solver could not load. Is the lib folder complete? Run fetch_libs.py.', 'warn'));
 
     this.bindChrome();
+    this.setupApp();
     this.renderToolbar('solid');
     this.restoreAutosave().then(() => this.rebuild()).then(() => this.vp.home());
   }
@@ -543,8 +544,9 @@ class App {
     this.setStatus('Project saved to your downloads.');
   }
 
-  async openProject() {
-    const file = await openFile('.json,application/json');
+  // `file` comes from the system when the installed app opens a file; otherwise ask for one.
+  async openProject(file = null) {
+    file ??= await openFile('.json,application/json');
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
@@ -561,11 +563,41 @@ class App {
     }
   }
 
+  // ---------- installable app ----------
+
+  // Offline support, the Install button, and files opened with the installed app.
+  setupApp() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => { /* offline install not available here */ });
+    }
+    const btn = $('#btn-install');
+    let prompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); prompt = e; btn.hidden = false; });
+    window.addEventListener('appinstalled', () => { btn.hidden = true; this.setStatus('NewfieCad is installed. Find it in your apps menu.'); });
+    btn.onclick = async () => {
+      if (!prompt) return;
+      prompt.prompt();
+      await prompt.userChoice;
+      prompt = null;
+      btn.hidden = true;
+    };
+    // Double-clicking an .stl or a project file opens it here.
+    if ('launchQueue' in window) {
+      window.launchQueue.setConsumer(async ({ files }) => {
+        for (const handle of files || []) {
+          const file = await handle.getFile();
+          if (/\.stl$/i.test(file.name)) await this.insertSTL(file);
+          else await this.openProject(file);
+        }
+      });
+    }
+  }
+
   // ---------- STL import ----------
 
-  async insertSTL() {
+  async insertSTL(file = null) {
     if (this.active) { this.setStatus('Finish or cancel the current command first.', 'warn'); return; }
-    const file = await openFile('.stl,model/stl');
+    file ??= await openFile('.stl,model/stl');
     if (!file) return;
     let mesh;
     try {

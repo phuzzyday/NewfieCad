@@ -16,6 +16,7 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
         **http.server.SimpleHTTPRequestHandler.extensions_map,
         ".js": "text/javascript",
         ".wasm": "application/wasm",
+        ".webmanifest": "application/manifest+json",
     }
 
     # Always revalidate, so edited files are picked up on reload.

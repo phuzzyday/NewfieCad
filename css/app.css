@@ -28,6 +28,8 @@ input, select { font: inherit; color: inherit; }
 #topbar .btn.flat, #topbar .btn.icon { background: none; border: 0; color: #e9edf2; padding: 5px 9px; border-radius: 4px; cursor: pointer; }
 #topbar .btn.flat:hover, #topbar .btn.icon:hover { background: #404b58; }
 #topbar .btn.icon svg { width: 18px; height: 18px; display: block; }
+#topbar .btn.install { border: 1px solid #6fb6ff; color: #cfe5ff; }
+#topbar .btn.install[hidden] { display: none; }
 #kernel-state { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #404b58; }
 #kernel-state.ok { color: #9be3a8; }
 #kernel-state.busy { color: #ffd479; }

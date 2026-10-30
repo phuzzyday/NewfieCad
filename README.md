@@ -7,6 +7,12 @@ It exports STL and 3MF for your slicer.
 **Try it in your browser:** <https://phuzzyday.github.io/NewfieCad/> (nothing to install; a Chrome-based browser works best).
 Or download it and run it on your own computer, offline, as described below.
 
+**Install it as an app:** in Chrome or Edge, open the link above and click **Install app** in NewfieCad's top bar (or the
+install icon in the address bar). It then has its own icon and window, works offline, and updates itself when the
+site changes. Installed, it can also open `.stl` files and saved projects (`.json`) straight from your file manager:
+right-click one and choose Open with, then NewfieCad. This works on Windows and Linux; Firefox can use the site but
+can't install it.
+
 ## Running it
 
 You need Python 3 (no other installs). No internet connection is needed: the libraries are in the `lib` folder.
@@ -171,6 +177,7 @@ js/kernel.js        talks to the kernel worker
 js/kernel-worker.js replicad / OpenCascade feature rebuild
 js/timeline.js, js/tree.js, js/io.js, js/ui.js, js/icons.js
 serve.py            local web server (no caching, so edits show up on reload)
+manifest.webmanifest, sw.js, icon*  installable-app description, offline support, app icons
 fetch_libs.py       downloads the libraries into lib/ (already done; rerun to restore or update them)
 lib/                three.js (MIT), replicad (MIT), OpenCascade for replicad (LGPL 2.1) and planegcs (LGPL 2.1),
                     each with its licence file. Keep these licence files when you pass the app on.
