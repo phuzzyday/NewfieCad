@@ -113,6 +113,14 @@ export class Selector {
     }
   }
 
+  // Middle-click: the whole body under the mouse. Ctrl adds or removes it.
+  onMiddleClick(ev) {
+    const hit = this.vp.pick(ev, { faces: true });
+    const add = ev.ctrlKey || ev.metaKey;
+    if (hit) this.pickItem({ kind: 'body', body: hit.body }, add);
+    else if (!add) this.clear();
+  }
+
   boxKind() { return 'bodies'; }
 
   onBoxSelect(items, ev) {

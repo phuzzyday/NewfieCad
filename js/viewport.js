@@ -693,7 +693,7 @@ export class Viewport {
           if (hit) pivot = hit.point.clone();
         }
         this.anim = null;
-        drag = { mode: orbit ? 'orbit' : 'pan', x: ev.clientX, y: ev.clientY, pivot };
+        drag = { mode: orbit ? 'orbit' : 'pan', x: ev.clientX, y: ev.clientY, x0: ev.clientX, y0: ev.clientY, button: ev.button, moved: false, pivot };
         dom.style.cursor = orbit ? 'grabbing' : 'move';
       } else if (ev.button === 0 && tool()?.onPointerDown?.(ev)) {
         drag = { mode: 'tool' };
@@ -704,6 +704,7 @@ export class Viewport {
     dom.addEventListener('pointermove', (ev) => {
       if (drag?.mode === 'tool') { tool()?.onDrag?.(ev); return; }
       if (drag && drag.mode !== 'click') {
+        if (Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) > 4) drag.moved = true;
         const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
         drag.x = ev.clientX; drag.y = ev.clientY;
         if (drag.mode === 'orbit') this.orbit(dx, dy, drag.pivot); else this.pan(dx, dy);
@@ -722,6 +723,8 @@ export class Viewport {
         else if (!drag.moved) tool()?.onClick?.(ev);
       }
       if (drag?.mode === 'tool') tool()?.onDragEnd?.(ev);
+      // A middle press without moving is a click (selects a whole body); moving pans.
+      if (drag?.button === 1 && !drag.moved) tool()?.onMiddleClick?.(ev);
       drag = null;
       dom.style.cursor = '';
     });

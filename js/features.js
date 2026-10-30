@@ -787,6 +787,13 @@ export class FeatureDialog {
     this.update();
   }
 
+  // Middle-click toggles the body under the mouse in steps that pick bodies; elsewhere it does nothing.
+  onMiddleClick(ev) {
+    if (this.pick !== 'bodies' && this.pick !== 'combine') return;
+    const hit = this.vp.pick(ev, { faces: true });
+    if (hit) this.toggleBody(hit.body);
+  }
+
   // Box selection adds to the picks.
   boxKind() { return { edges: 'edges', faces: 'faces', bodies: 'bodies', combine: 'bodies' }[this.pick] || null; }
 

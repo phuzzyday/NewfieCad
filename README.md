@@ -41,8 +41,8 @@ Use a different port with `start.bat 9000` or `sh start.sh 9000`. Press Ctrl+C i
 | Action | Mouse |
 |---|---|
 | Select a face or edge | Click it (hovering shows what you'll get) |
-| Select a whole body | Double-click it, or click its name under Bodies in the tree |
-| Add or remove | Ctrl + click (also Ctrl + double-click, and Ctrl in the tree) |
+| Select a whole body | Middle-click any face of it (a middle drag still pans), double-click it, or click its name in the tree |
+| Add or remove | Ctrl + click (also Ctrl + middle-click, Ctrl + double-click, and Ctrl in the tree) |
 | Box select | Drag on the view. Left to right (solid box) takes only what's fully inside; right to left (dashed green box) takes anything it touches |
 | Clear | Click empty space, or Esc |
 
