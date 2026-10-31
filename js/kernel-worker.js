@@ -301,6 +301,13 @@ function shell(state, f) {
   });
 }
 
+// A flat face pushed `d` along its outward normal `n`, as a solid to add (d > 0) or cut.
+// A cut starts slightly outside the face, as cuts on the exact surface are unreliable.
+function faceExtrusion(face, n, d, withLead = true) {
+  const lead = d < 0 && withLead ? 0.05 : 0;
+  return R.basicFaceExtrusion(face.clone().translate(mul(n, lead)), new R.Vector(mul(n, d - lead)));
+}
+
 // Press Pull: extrude a flat face along its normal. Outward adds to its body, inward cuts.
 function pressPull(state, f) {
   const p = f.params;
@@ -310,12 +317,46 @@ function pressPull(state, f) {
   const m = matchFace(state, p.face);
   if (!m) throw new Error('The face is missing');
   if (m.face.geomType !== 'PLANE') throw new Error('Press Pull needs a flat face');
-  const n = p.normal || m.sig.n;
-  // A cut starts slightly outside the face, as cuts on the exact surface are unreliable.
-  const lead = d < 0 ? 0.05 : 0;
-  const face = m.face.clone().translate(mul(n, lead));
-  const tool = R.basicFaceExtrusion(face, new R.Vector(mul(n, d - lead)));
+  const tool = faceExtrusion(m.face, p.normal || m.sig.n, d);
   state.bodies = state.bodies.map((b, i) => (i === m.bi ? { ...b, shape: d > 0 ? b.shape.fuse(tool) : b.shape.cut(tool) } : b));
+}
+
+// Move faces: every picked flat face is pushed by how far the move goes along its own
+// normal (so a slot's two walls slide over together). Faces the move runs along stay
+// where they are and stretch or shrink with their neighbours.
+function moveFaces(state, f) {
+  const p = f.params;
+  if (!p.faces?.length) throw new Error('Select at least one face');
+  const v = [p.dx, p.dy, p.dz].map((x) => Number(x) || 0);
+  const adds = new Map(), cuts = new Map(), exact = new Map();
+  const push = (map, bi, s) => { if (!map.has(bi)) map.set(bi, []); map.get(bi).push(s); };
+  // Find every face before changing anything.
+  for (const sig of p.faces) {
+    const m = matchFace(state, sig);
+    if (!m) throw new Error('A picked face is missing');
+    if (m.face.geomType !== 'PLANE') throw new Error('Only flat faces can be moved');
+    const d = dot(v, sig.n);
+    if (Math.abs(d) < 1e-6) continue;
+    if (d > 0) push(adds, m.bi, faceExtrusion(m.face, sig.n, d));
+    else {
+      push(cuts, m.bi, faceExtrusion(m.face, sig.n, d));
+      push(exact, m.bi, faceExtrusion(m.face, sig.n, d, false));
+    }
+  }
+  // A move longer than the feature is wide sweeps some space twice: once by a face that
+  // adds and once by one that cuts (a slot's old place, or a boss's). That space keeps
+  // what it had, so only the parts swept once are added or cut. (The cuts' small lead
+  // is left out when trimming the additions, so no sliver is lost.)
+  const solid = (s) => s && s.faces.length > 0;
+  state.bodies = state.bodies.map((b, i) => {
+    const A = fuseAll(adds.get(i) || []), C = fuseAll(cuts.get(i) || []);
+    if (!A && !C) return b;
+    const add = A && C ? A.cut(fuseAll(exact.get(i))) : A, cut = A && C ? C.cut(A) : C;
+    let s = b.shape;
+    if (solid(add)) s = s.fuse(add);
+    if (solid(cut)) s = s.cut(cut);
+    return { ...b, shape: s };
+  });
 }
 
 // The axis, radius and extent of a cylindrical face, and whether it is a hole.
@@ -604,6 +645,7 @@ function pattern(state, f) {
 // Rotate about the pivot, then translate. With "copy", the originals stay.
 function move(state, f) {
   const p = f.params;
+  if (p.mode === 'faces') { moveFaces(state, f); return; }
   const sel = selectedBodies(state, p.bodies);
   const angle = Number(p.angle) || 0;
   const v = [p.dx, p.dy, p.dz].map((x) => Number(x) || 0);

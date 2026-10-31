@@ -110,6 +110,12 @@ double-click two bodies and press M to move them, or select a flat face and clic
    Drags snap to 1 mm and 5°; hold Shift for 0.1 mm and 1°. You can also type the values.
    The rotation turns about the centre of the selected bodies. Tick **Keep original** to make a copy.
    While you drag, a blue outline of the bodies follows the mouse at once.
+   **Move faces:** set **Move** to **Faces** (or select faces first and press M; it starts that way), click flat
+   faces (Ctrl or a box adds more), and drag the X/Y/Z arrows or type distances. Each face is pushed by how far the
+   move goes along its own direction, so picking both walls of a slot and moving right slides the slot over, and
+   picking several top faces and moving up raises them all. Faces the move runs along (like the slot's floor) stretch
+   with their neighbours; you don't need to pick them. For a slanted face there's an extra arrow along its normal.
+   Flat faces only for now, and no turning.
    **Combine** (MODIFY) joins, cuts or intersects bodies: click the target body (blue), then the tool bodies (orange).
    Join merges the tools into the target, Cut removes their shape from it, and Intersect keeps only the overlap.
    The tools are used up unless you tick **Keep tool bodies**. Bodies selected beforehand: the first is the target, the rest are tools.

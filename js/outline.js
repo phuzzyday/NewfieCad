@@ -58,25 +58,43 @@ export function moveOutline(vp, p) {
   return { positions, matrix };
 }
 
-// Press Pull: the face's outline where it starts and where it ends, joined at the corners.
-export function pressPullOutline(vp, p) {
-  if (!p.face || !p.normal) return null;
-  const f = vp.findFace(p.face);
+// The boundary of a picked face as [start, end] segments, or [] if it's gone.
+function faceEdges(vp, sig) {
+  const f = vp.findFace(sig);
   const b = f && vp.bodyData.find((x) => x.id === f.body);
-  if (!b) return null;
+  if (!b) return [];
   const g = b.faceGroups[f.group];
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(b.vertices, 3));
   geo.setIndex(Array.from(b.triangles.subarray(g.start, g.start + g.count)));
   // Edges used by only one triangle form the face's boundary.
   const edge = new THREE.EdgesGeometry(geo, 1).attributes.position.array;
+  const out = [];
+  for (let i = 0; i < edge.length; i += 6) out.push([[edge[i], edge[i + 1], edge[i + 2]], [edge[i + 3], edge[i + 4], edge[i + 5]]]);
+  return out;
+}
+
+// Press Pull: the face's outline where it starts and where it ends, joined at the corners.
+export function pressPullOutline(vp, p) {
+  if (!p.face || !p.normal) return null;
   const d = Number(p.distance) || 0;
   const lines = [];
-  for (let i = 0; i < edge.length; i += 6) {
-    const a = [edge[i], edge[i + 1], edge[i + 2]], e = [edge[i + 3], edge[i + 4], edge[i + 5]];
+  for (const [a, e] of faceEdges(vp, p.face)) {
     lines.push(a, e, along(a, p.normal, d), along(e, p.normal, d), a, along(a, p.normal, d));
   }
-  return { lines };
+  return lines.length ? { lines } : null;
+}
+
+// Move faces: each face's outline where it ends up, pushed along its own normal
+// by the part of the move that goes that way.
+export function movedFacesOutline(vp, p) {
+  const v = [p.dx, p.dy, p.dz].map((x) => Number(x) || 0);
+  const lines = [];
+  for (const sig of p.faces || []) {
+    const d = v[0] * sig.n[0] + v[1] * sig.n[1] + v[2] * sig.n[2];
+    for (const [a, e] of faceEdges(vp, sig)) lines.push(along(a, sig.n, d), along(e, sig.n, d));
+  }
+  return lines.length ? { lines } : null;
 }
 
 // Extrude: the chosen profiles pushed out by the distance, placed as the kernel does it.

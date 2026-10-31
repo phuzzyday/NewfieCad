@@ -7,7 +7,7 @@ import { Gizmo } from './gizmo.js';
 import {
   STAGES, primFrame, dragSize, dragHeight, typedSize, primArrows, applyPrimArrow, extrudeArrow, applyExtrudeArrow,
 } from './shape-drag.js';
-import { primitiveOutline, pressPullOutline, extrudeOutline, moveOutline } from './outline.js';
+import { primitiveOutline, pressPullOutline, extrudeOutline, moveOutline, movedFacesOutline } from './outline.js';
 import { THREADS } from './threads.js';
 
 const OPS = [['join', 'Join'], ['cut', 'Cut'], ['new', 'New Body']];
@@ -163,15 +163,18 @@ export const FEATURE_TYPES = {
     ],
   },
   move: {
-    label: 'Move', title: 'Move / Copy', icon: 'move', pick: 'bodies', gizmo: true,
-    defaults: () => ({ bodies: [], pivot: null, dx: 0, dy: 0, dz: 0, axis: 'z', angle: 0, copy: false }),
+    // Whole bodies (move, turn, copy), or faces (each pushed by the move along its normal).
+    label: 'Move', title: 'Move / Copy', icon: 'move', pick: (p) => (p.mode === 'faces' ? 'faces' : 'bodies'),
+    hint: { faces: 'Click flat faces to move (Ctrl or a box adds more), then drag an arrow or type the distances.' },
+    defaults: () => ({ mode: 'bodies', bodies: [], faces: [], pivot: null, dx: 0, dy: 0, dz: 0, axis: 'z', angle: 0, copy: false }),
     fields: [
+      { key: 'mode', label: 'Move', type: 'select', options: [['bodies', 'Bodies'], ['faces', 'Faces']] },
       { key: 'dx', label: 'Move X (mm)', type: 'number' },
       { key: 'dy', label: 'Move Y (mm)', type: 'number' },
       { key: 'dz', label: 'Move Z (mm)', type: 'number' },
-      { key: 'axis', label: 'Rotate around', type: 'select', options: AXIS_OPTS },
-      { key: 'angle', label: 'Angle (°)', type: 'number' },
-      { key: 'copy', label: 'Keep original (copy)', type: 'checkbox' },
+      { key: 'axis', label: 'Rotate around', type: 'select', options: AXIS_OPTS, hideIf: (p) => p.mode === 'faces' },
+      { key: 'angle', label: 'Angle (°)', type: 'number', hideIf: (p) => p.mode === 'faces' },
+      { key: 'copy', label: 'Keep original (copy)', type: 'checkbox', hideIf: (p) => p.mode === 'faces' },
     ],
   },
   rectPattern: {
@@ -311,8 +314,11 @@ export class FeatureDialog {
     }
     this.vp.tool = this;
     this.showPlanes();
-    if (this.def.gizmo) this.gizmo = new Gizmo(this.vp);
     if (this.type === 'shell' && this.preselect?.length && this.preselect.every((it) => it.kind === 'body')) this.params.mode = 'bodies';
+    // Move starts on faces when only faces were selected.
+    if (this.type === 'move' && this.preselect?.some((it) => it.kind === 'face') && !this.preselect.some((it) => it.kind === 'body')) {
+      this.params.mode = 'faces';
+    }
     if (this.preselect?.length) this.applySelection(this.preselect);
     // A new primitive is drawn: click a point, drag its size, then its height.
     if (this.pick === 'place' && this.index == null) this.beginStage(this.params.point ? 'size' : 'point');
@@ -390,7 +396,7 @@ export class FeatureDialog {
     if (this.pick === 'place') o = primitiveOutline(this.type, this.params);
     else if (this.type === 'pressPull') o = pressPullOutline(this.vp, this.params);
     else if (this.type === 'extrude') o = extrudeOutline(this.app, this.params);
-    else if (this.type === 'move') o = moveOutline(this.vp, this.params);
+    else if (this.type === 'move') o = this.params.mode === 'faces' ? movedFacesOutline(this.vp, this.params) : moveOutline(this.vp, this.params);
     this.vp.setOutline(o);
   }
 
@@ -581,7 +587,9 @@ export class FeatureDialog {
     const flatFace = items.find((it) => it.kind === 'face' && it.flat);
     switch (this.pick) {
       case 'edges': p.edges = items.filter((it) => it.kind === 'edge').map((it) => it.sig); break;
-      case 'faces': p.faces = items.filter((it) => it.kind === 'face').map((it) => it.sig); break;
+      case 'faces':
+        p.faces = items.filter((it) => it.kind === 'face' && (this.type !== 'move' || it.flat !== false)).map((it) => it.sig);
+        break;
       case 'bodies':
         p.bodies = [...new Set(items.map((it) => it.body))];
         if (this.type === 'move' || this.type === 'scale') p.pivot = this.vp.bodiesCenter(p.bodies);
@@ -744,6 +752,7 @@ export class FeatureDialog {
       }
       case 'edges': return `Edges: ${p.edges.length} selected`;
       case 'faces':
+        if (this.type === 'move') return `Faces: ${p.faces.length} selected`;
         if (this.type === 'shell' && !p.faces.length) return 'No faces: hollow, sealed';
         return `Faces to remove: ${p.faces.length}`;
       case 'point': return p.point ? 'Hole position set' : 'Click a face to place the hole';
@@ -812,7 +821,9 @@ export class FeatureDialog {
       }
       if (this.hover?.kind === 'edge') items.push({ kind: 'edge', points: this.hover.points, color: 0x6fb6ff });
     }
-    if (this.pick === 'faces') {
+    // Once a move is applied, the preview shows where things went; don't tint over it.
+    const moved = this.type === 'move' && [p.dx, p.dy, p.dz, p.angle].some((v) => Number(v));
+    if (this.pick === 'faces' && !moved) {
       for (const sig of p.faces) {
         const f = this.vp.findFace(sig);
         if (f) items.push({ kind: 'face', ...f, color: 0x0a6cff });
@@ -825,8 +836,6 @@ export class FeatureDialog {
       if (f) items.push({ kind: 'face', ...f, color: 0x0a6cff });
       if (this.hover?.kind === 'face') items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
     }
-    // Once a move is applied, the preview shows where the bodies went; don't tint over it.
-    const moved = this.type === 'move' && [p.dx, p.dy, p.dz, p.angle].some((v) => Number(v));
     if (this.pick === 'bodies' && !moved) {
       for (const id of p.bodies) items.push({ kind: 'body', body: id, color: 0x0a6cff });
       if (this.hover?.kind === 'face' && !p.bodies.includes(this.hover.body)) items.push({ kind: 'body', body: this.hover.body, color: 0x6fb6ff });
@@ -908,8 +917,28 @@ export class FeatureDialog {
       this.gizmo?.setCenter(this.splitSquare()?.center ?? null);
       return;
     }
-    if (!this.gizmo) return;
-    this.gizmo.setCenter(p.pivot && p.bodies.length ? p.pivot.map((v, i) => v + (Number([p.dx, p.dy, p.dz][i]) || 0)) : null);
+    if (this.type !== 'move') return;
+    // Bodies: arrows and rings. Faces: arrows only, plus one along the first face's
+    // normal when that isn't already an X, Y or Z arrow.
+    const faces = p.mode === 'faces';
+    const n = faces ? p.faces[0]?.n : null;
+    const extra = n && !n.some((v) => Math.abs(Math.abs(v) - 1) < 1e-6) ? n : null;
+    const key = faces ? `faces|${extra?.join() ?? ''}` : 'bodies';
+    if (key !== this.gizmoKey) {
+      this.gizmo?.dispose();
+      const axes = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1], ...(extra ? { n: extra } : {}) };
+      this.gizmo = faces ? new Gizmo(this.vp, { axes, rings: false }) : new Gizmo(this.vp);
+      this.gizmoKey = key;
+    }
+    const c = faces ? this.facesCenter() : p.bodies.length ? p.pivot : null;
+    this.gizmo.setCenter(c ? c.map((v, i) => v + (Number([p.dx, p.dy, p.dz][i]) || 0)) : null);
+  }
+
+  // The middle of the picked faces.
+  facesCenter() {
+    const list = this.params.faces;
+    if (!list?.length) return null;
+    return [0, 1, 2].map((k) => list.reduce((s, f) => s + f.c[k], 0) / list.length);
   }
 
   // ---------- gizmo dragging (Move) ----------
@@ -963,6 +992,10 @@ export class FeatureDialog {
       this.showOutline();
     } else if (this.type === 'split') {
       p.offset = clean(st.offset + snap(amt, ev.shiftKey ? 0.1 : 1));
+    } else if (h.kind === 'move' && h.axis === 'n') {
+      // Along the face normal: all three distances change together.
+      const s = snap(amt, ev.shiftKey ? 0.1 : 1), n = this.gizmo.axes.n;
+      ['dx', 'dy', 'dz'].forEach((k, i) => { p[k] = clean(st[k] + n[i] * s); });
     } else if (h.kind === 'move') {
       const key = `d${h.axis}`;
       p[key] = clean(st[key] + snap(amt, ev.shiftKey ? 0.1 : 1));
@@ -1048,7 +1081,10 @@ export class FeatureDialog {
     if (this.pick === 'edges') {
       for (const it of items) if (!p.edges.some((s) => same(s.m, it.sig.m))) p.edges.push(it.sig);
     } else if (this.pick === 'faces') {
-      for (const it of items) if (!p.faces.some((s) => same(s.c, it.sig.c))) p.faces.push(it.sig);
+      for (const it of items) {
+        if (this.type === 'move' && it.flat === false) continue; // only flat faces move
+        if (!p.faces.some((s) => same(s.c, it.sig.c))) p.faces.push(it.sig);
+      }
     } else if (this.pick === 'bodies') {
       p.bodies = [...new Set([...p.bodies, ...items.map((it) => it.body)])];
       this.selectionChanged();
@@ -1169,6 +1205,7 @@ export class FeatureDialog {
       const i = p.edges.findIndex((s) => same(s.m, hit.sig.m));
       if (i >= 0) p.edges.splice(i, 1); else p.edges.push(hit.sig);
     } else if (hit.kind === 'face' && this.pick === 'faces') {
+      if (this.type === 'move' && !hit.flat) { this.app.setStatus('Only flat faces can be moved for now.', 'warn'); return; }
       const i = p.faces.findIndex((s) => same(s.c, hit.sig.c));
       if (i >= 0) p.faces.splice(i, 1); else p.faces.push(hit.sig);
     } else if (hit.kind === 'face' && this.pick === 'face') {
