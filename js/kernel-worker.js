@@ -541,6 +541,12 @@ function scaleBodies(state, f) {
   state.bodies = state.bodies.map((b) => (sel.has(b.id) ? { ...b, shape: b.shape.clone().scale(k, c) } : b));
 }
 
+// Remove: drop bodies from the model from this step on.
+function removeBodies(state, f) {
+  const ids = new Set(selectedBodies(state, f.params.bodies).map((b) => b.id));
+  state.bodies = state.bodies.filter((b) => !ids.has(b.id));
+}
+
 function runFeature(state, f) {
   const p = f.params;
   switch (f.type) {
@@ -548,6 +554,7 @@ function runFeature(state, f) {
     case 'move': move(state, f); break;
     case 'scale': scaleBodies(state, f); break;
     case 'combine': combine(state, f); break;
+    case 'remove': removeBodies(state, f); break;
     case 'rectPattern': case 'circPattern': case 'mirror': pattern(state, f); break;
     case 'fillet': edgeFeature(state, f, 'fillet', Number(p.radius)); break;
     case 'chamfer': edgeFeature(state, f, 'chamfer', Number(p.distance)); break;

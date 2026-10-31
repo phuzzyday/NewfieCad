@@ -20,6 +20,7 @@ export const ICONS = {
   stl: svg('<path d="M4 8l6-4 6 4v7l-6 4-6-4z"/><path d="M4 8l6 4 6-4M10 12v7M4 15l6-3 6 3"/><path d="M19 10v10M16 17l3 3 3-3"/>'),
   scale: svg('<rect x="3" y="11" width="10" height="10"/><rect x="3" y="3" width="18" height="18" stroke-dasharray="2 2"/><path d="M13 11l7-7M15 4h5v5"/>'),
   combine: svg('<rect x="3" y="7" width="11" height="11"/><circle cx="15" cy="10" r="6" fill="currentColor" fill-opacity=".15"/>'),
+  remove: svg('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>'),
   dimension: svg('<path d="M4 18L18 4"/><path d="M3 13l8 8M13 3l8 8"/><path d="M4 18l3-1M4 18l1-3M18 4l-3 1M18 4l-1 3"/>'),
   construction: svg('<path d="M4 20L20 4" stroke-dasharray="3 2.5"/><circle cx="4" cy="20" r="1.5"/><circle cx="20" cy="4" r="1.5"/>'),
   k_coincident: svg('<path d="M3 12h7M14 12h7"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/>'),

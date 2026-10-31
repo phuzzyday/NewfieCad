@@ -57,6 +57,7 @@ const SOLID_TOOLS = [
     ['move', 'Move/Copy (M)', () => app.startFeature('move')],
     ['scale', 'Scale', () => app.startFeature('scale')],
     ['combine', 'Combine', () => app.startFeature('combine')],
+    ['remove', 'Remove (Delete)', () => app.startFeature('remove')],
   ]],
   ['INSPECT', [
     ['measure', 'Measure', () => app.startMeasure()],
@@ -434,6 +435,21 @@ class App {
     this.doc = JSON.parse(this.redoStack.pop());
     this.save();
     this.rebuild();
+  }
+
+  // Adds a Remove step to the timeline for these bodies, without opening a dialog.
+  removeBodies(ids) {
+    if (!ids.length) return;
+    this.stopActive();
+    this.selector.take();
+    this.commitFeature({ id: this.newId('remove'), type: 'remove', params: { bodies: ids } });
+  }
+
+  // Delete key: remove the selected bodies.
+  deleteSelection() {
+    const ids = this.selector.items.filter((it) => it.kind === 'body').map((it) => it.body);
+    if (ids.length) this.removeBodies(ids);
+    else if (this.selector.items.length) this.setStatus('To remove a body, select the whole body (middle-click or double-click it), then press Delete.', 'warn');
   }
 
   deleteFeature(i) {
@@ -849,6 +865,7 @@ class App {
       if (e.key === 'Escape') { this.selector.clear(); return; }
       if (e.key === 'Enter' && this.active?.ok) { this.active.ok(); return; }
       if (ctrl || e.altKey || this.active) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.deleteSelection(); return; }
       const keys = { e: 'extrude', f: 'fillet', h: 'hole', m: 'move', q: 'pressPull' };
       if (keys[e.key]) this.startFeature(keys[e.key]);
     });

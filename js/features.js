@@ -108,6 +108,11 @@ export const FEATURE_TYPES = {
       { key: 'about', label: 'Scale about', type: 'select', options: [['center', 'Centre of the bodies'], ['origin', 'Origin']] },
     ],
   },
+  remove: {
+    label: 'Remove', icon: 'remove', pick: 'bodies',
+    defaults: () => ({ bodies: [] }),
+    fields: [],
+  },
   stl: {
     label: 'STL', title: 'Insert STL', icon: 'stl', pick: 'none',
     fields: [

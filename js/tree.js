@@ -48,6 +48,7 @@ export function renderTree(app, container) {
       contextMenu(e.clientX, e.clientY, [
         { label: 'Export STL…', onClick: () => app.exportBodies('stl', [b.id], b.name) },
         { label: 'Export 3MF…', onClick: () => app.exportBodies('3mf', [b.id], b.name) },
+        { label: 'Remove', onClick: () => app.removeBodies([b.id]) },
       ]);
     });
     return n;
