@@ -96,6 +96,8 @@ double-click two bodies and press M to move them, or select a flat face and clic
    The row stays open until you click the same ▾ button again, press ×, or open another ▾ row (Pattern ▾ has one too).
    Draw it like in Fusion: click an origin plane (snaps to whole millimetres) or a flat face, move the mouse and click to set the size,
    then move and click to set the height. For a Box the first click is a corner; for the round shapes it is the centre.
+   The height starts at 2 mm and follows the mouse from there. To skip that step, untick **Set height with the mouse**
+   in the panel (it's remembered): the shape is then 2 mm high, and you change it afterwards with the top arrow or the panel.
    While moving, type a number to enter it exactly (Tab between Width and Depth, Enter applies). Sizes snap to 1 mm; Shift gives 0.1 mm.
    **Snapping:** the first click and the second (a box's far corner, a round shape's size) snap to corners, edge
    midpoints, circle and arc centres and edges in the plane you're drawing on, and on the origin planes to the

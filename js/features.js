@@ -263,6 +263,12 @@ const STAGE_HINT = {
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
+// Whether a new primitive's height (a torus's tube) follows the mouse after its base is
+// drawn. Remembered between visits; when off, it is 2 mm and changed afterwards.
+const HEIGHT_KEY = 'newfiecad.mouseHeight';
+const mouseHeight = () => { try { return localStorage.getItem(HEIGHT_KEY) !== 'off'; } catch { return true; } };
+const setMouseHeight = (on) => { try { localStorage.setItem(HEIGHT_KEY, on ? 'on' : 'off'); } catch { /* storage unavailable */ } };
+
 // Distance along the line through c in direction dir (unit) closest to the mouse ray.
 function axisParam(vp, ev, c, dir) {
   const r = vp.ray(ev).ray;
@@ -411,8 +417,13 @@ export class FeatureDialog {
 
   advanceStage() {
     if (this.stage === 'point') this.beginStage('size');
-    else if (this.stage === 'size' && STAGES[this.type].length > 1) this.stage = 'height';
-    else this.stage = null;
+    else if (this.stage === 'size' && STAGES[this.type].length > 1) {
+      // The height (a torus's tube) starts at 2 mm; with the mouse switch on, it then
+      // follows the mouse from wherever it is, otherwise the shape is done.
+      this.params[this.type === 'torus' ? 'tubeDiameter' : 'height'] = 2;
+      this.heightStart = null;
+      this.stage = mouseHeight() ? 'height' : null;
+    } else this.stage = null;
     this.hideDim();
     this.vp.setOutline(null);
     this.render();
@@ -448,7 +459,15 @@ export class FeatureDialog {
     } else {
       const t = axisParam(this.vp, ev, p.point, p.normal);
       if (this.type === 'torus' ? !uv : t == null) return;
-      dragHeight(this.type, p, t, uv, step);
+      // Measured from where the mouse was when this step began, so it starts at 2 mm.
+      const now = this.type === 'torus' ? Math.hypot(...uv) : t;
+      this.heightStart ??= now;
+      if (this.type === 'torus') {
+        p.tubeDiameter = Math.round(Math.max(step, Math.round((2 + 2 * (now - this.heightStart)) / step) * step) * 1000) / 1000;
+      } else {
+        // Signed along the plane normal: a new shape starts 2 mm out of it, a cut 2 mm in.
+        dragHeight(this.type, p, (p.op === 'cut' ? -2 : 2) + (now - this.heightStart), uv, step);
+      }
     }
     this.lastEv = ev;
     this.render();
@@ -744,6 +763,16 @@ export class FeatureDialog {
     }
     this.selInfo = el('div', { class: 'sel-info' });
     body.append(this.selInfo);
+    if (this.pick === 'place' && this.index == null && STAGES[this.type]?.length > 1) {
+      const box = el('input', { type: 'checkbox', checked: mouseHeight() });
+      box.addEventListener('change', () => {
+        setMouseHeight(box.checked);
+        // Switched off while setting the height: keep it as it is now.
+        if (!box.checked && this.stage === 'height') { this.stage = null; this.hideDim(); this.render(); this.update(); }
+      });
+      const what = this.type === 'torus' ? 'tube' : 'height';
+      body.append(el('label', { class: 'check', title: `Off: the ${what} starts at 2 mm and you change it afterwards` }, box, `Set ${what} with the mouse`));
+    }
     if (this.type === 'sweep' && p.profile) {
       body.append(el('button', {
         class: 'btn small', title: 'Choose a different profile (the path is picked again after it)',

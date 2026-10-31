@@ -206,7 +206,11 @@ export class Viewport {
 
   setPreview(bodies, ghost = false) {
     this.preview.clear();
-    for (const b of bodies || []) this.makeBodyObjects(b, { ghost }).objs.forEach((x) => this.preview.add(x));
+    for (const b of bodies || []) {
+      const o = this.makeBodyObjects(b, { ghost });
+      if (!ghost) this.applyStyle(o); // previews follow the chosen visual style too
+      o.objs.forEach((x) => this.preview.add(x));
+    }
     this.redraw();
   }
 
