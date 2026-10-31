@@ -99,6 +99,36 @@ export function entityPolyline(e) {
   return [];
 }
 
+// The chain of lines and arcs joined end to end through entity `index` (a sweep path).
+// It stops where curves branch. Returns { items: [{ e, rev }] in order, closed } or null;
+// `rev` means the curve runs backwards along the chain. A circle or rectangle is a chain on its own.
+export function curveChain(entities, index) {
+  const start = entities?.[index];
+  if (!start) return null;
+  const open = (e) => e.t === 'line' || e.t === 'arc';
+  if (!open(start)) return { items: [{ e: start, rev: false }], closed: true };
+  const at = (p, q) => dist2(p, q) < 1e-4;
+  const used = new Set([index]);
+  const items = [{ e: start, rev: false }];
+  const grow = (forward) => {
+    for (;;) {
+      const tip = forward ? items.at(-1) : items[0];
+      const p = forward === !tip.rev ? tip.e.b : tip.e.a;
+      const next = [];
+      entities.forEach((e, i) => { if (!used.has(i) && open(e) && (at(e.a, p) || at(e.b, p))) next.push(i); });
+      if (next.length !== 1) return;
+      const e = entities[next[0]];
+      used.add(next[0]);
+      if (forward) items.push({ e, rev: at(e.b, p) });
+      else items.unshift({ e, rev: at(e.a, p) });
+    }
+  };
+  grow(true);
+  grow(false);
+  const first = items[0], last = items.at(-1);
+  return { items, closed: items.length > 1 && at(first.rev ? first.e.b : first.e.a, last.rev ? last.e.a : last.e.b) };
+}
+
 // Key points of an entity, used for snapping.
 export function entityPoints(e) {
   switch (e.t) {

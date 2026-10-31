@@ -4,7 +4,7 @@
 // Libraries are kept in ../lib (see fetch_libs.py), so no internet is needed.
 import opencascade from '../lib/replicad-opencascadejs/dist/replicad_single.js';
 import * as R from '../lib/replicad/dist/replicad.js';
-import { buildProfiles, sketchFrame } from './profiles.js';
+import { buildProfiles, sketchFrame, curveChain, toWorld, rectCorners } from './profiles.js';
 import { decodeMesh, meshToSTL } from './stl.js';
 
 const WASM_URL = new URL('../lib/replicad-opencascadejs/dist/replicad_single.wasm', import.meta.url).href;
@@ -112,6 +112,59 @@ function revolveTool(state, f) {
   const solids = regionDrawings(sk, p.profiles).map((dr) =>
     dr.sketchOnPlane(makePlane(frame)).revolve(axis, { origin: frame.origin, angle }));
   return { tool: fuseAll(solids), op: p.op };
+}
+
+// One profile (region) of a sketch as wires in 3D: its outline and its holes.
+function regionWires(state, ref) {
+  const sk = getSketch(state, ref.sketch);
+  const { loops, regions } = buildProfiles(sk.entities);
+  const r = regions[ref.index];
+  if (!r) throw new Error('A picked profile no longer exists');
+  const wire = (li) => loopDrawing(loops[li]).sketchOnPlane(makePlane(sketchFrame(sk))).wire;
+  return { outer: wire(r.outer), holes: r.holes.map(wire) };
+}
+
+// Loft: blend between the outlines of two or more profiles, in the order picked.
+function loftTool(state, f) {
+  const p = f.params;
+  if ((p.sections || []).length < 2) throw new Error('Pick at least two profiles');
+  const wires = p.sections.map((s) => regionWires(state, s).outer);
+  return { tool: R.loft(wires, { ruled: !!p.ruled }), op: p.op };
+}
+
+// A sweep path: the chain of curves through the picked one, as a 3D wire.
+function pathWire(state, ref) {
+  const sk = getSketch(state, ref.sketch);
+  const chain = curveChain(sk.entities, ref.index);
+  if (!chain) throw new Error('The path curve no longer exists');
+  const fr = sketchFrame(sk);
+  const w = (p) => toWorld(fr, p[0], p[1]);
+  const edges = chain.items.flatMap(({ e, rev }) => {
+    switch (e.t) {
+      case 'line': return [rev ? R.makeLine(w(e.b), w(e.a)) : R.makeLine(w(e.a), w(e.b))];
+      case 'arc': return [rev ? R.makeThreePointArc(w(e.b), w(e.m), w(e.a)) : R.makeThreePointArc(w(e.a), w(e.m), w(e.b))];
+      case 'circle': return [R.makeCircle(e.r, w(e.c), fr.normal)];
+      case 'rect': {
+        const c = rectCorners(e).map(w);
+        return c.map((p, i) => R.makeLine(p, c[(i + 1) % 4]));
+      }
+    }
+    return [];
+  });
+  return R.assembleWire(edges);
+}
+
+// Sweep: move a profile along a path. Holes in the profile are swept too and cut out.
+function sweepTool(state, f) {
+  const p = f.params;
+  if (!p.profile) throw new Error('Click a profile to sweep');
+  if (!p.path) throw new Error('Click a curve for the path');
+  const { outer, holes } = regionWires(state, p.profile);
+  const spine = pathWire(state, p.path);
+  const opts = { transitionMode: p.corners === 'round' ? 'round' : 'right' };
+  let tool = R.genericSweep(outer, spine, opts);
+  for (const h of holes) tool = tool.cut(R.genericSweep(h, spine, opts));
+  return { tool, op: p.op };
 }
 
 function edgeSig(e) {
@@ -411,7 +464,7 @@ function stlTool(state, f) {
 
 // Features that add or remove a solid "tool" shape. These can be patterned.
 const TOOL_FEATURES = {
-  extrude: extrudeTool, revolve: revolveTool, hole: holeTool,
+  extrude: extrudeTool, revolve: revolveTool, hole: holeTool, loft: loftTool, sweep: sweepTool,
   box: primitiveTool, cylinder: primitiveTool, sphere: primitiveTool, torus: primitiveTool, cone: primitiveTool,
   stl: stlTool,
 };

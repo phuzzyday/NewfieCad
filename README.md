@@ -76,6 +76,13 @@ double-click two bodies and press M to move them, or select a flat face and clic
    edges into the sketch as fixed lines, arcs and circles.
 3. **Finish Sketch**, then **Extrude** or **Revolve** the closed profiles. Click profiles to choose which ones.
    Extrude has an arrow on the profile: drag it to set the distance (1 mm steps, Shift for 0.1 mm), or type it in the panel.
+   **Loft** blends between profiles in different sketches, for example a square base turning into a round top:
+   click the profiles in order (two or more, each in its own sketch). **Straight sides** joins them with flat faces
+   instead of smooth curves. A loft uses each profile's outline; holes in it are ignored.
+   **Sweep** moves a profile along a path: click the profile, then any curve of the path (lines and arcs joined end to
+   end to it are used too). Draw the path in its own sketch, starting where the profile is, for example the profile on
+   XY and the path on XZ. Holes in the profile run along the whole path, so two circles make a tube.
+   **Corners** sets whether sharp corners in the path are mitred (Sharp) or rounded.
 4. Add **Fillet**, **Chamfer** (click edges), **Shell** or **Hole** (click a flat face).
    Shell: click faces to remove for an open shell, or pick none to hollow the body sealed.
    With several bodies, set Type to **Hollow (sealed)** and click the body. A sealed hollow traps resin on resin printers; add a drain hole.

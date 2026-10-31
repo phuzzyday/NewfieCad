@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { el, field, num } from './ui.js';
-import { buildProfiles, sketchFrame, PLANES } from './profiles.js';
+import { buildProfiles, sketchFrame, PLANES, curveChain } from './profiles.js';
 import { Gizmo } from './gizmo.js';
 import {
   STAGES, primFrame, dragSize, dragHeight, typedSize, primArrows, applyPrimArrow, extrudeArrow, applyExtrudeArrow,
@@ -52,6 +52,23 @@ export const FEATURE_TYPES = {
     fields: [
       { key: 'axis', label: 'Axis', type: 'select', options: [['y', 'Sketch vertical axis'], ['x', 'Sketch horizontal axis']] },
       { key: 'angle', label: 'Angle (°)', type: 'number' },
+      { key: 'op', label: 'Operation', type: 'select', options: OPS },
+    ],
+  },
+  loft: {
+    label: 'Loft', icon: 'loft', pick: 'sections',
+    defaults: (app) => ({ sections: [], ruled: false, op: app.hasBodies() ? 'join' : 'new' }),
+    fields: [
+      { key: 'ruled', label: 'Straight sides', type: 'checkbox' },
+      { key: 'op', label: 'Operation', type: 'select', options: OPS },
+    ],
+  },
+  sweep: {
+    // First the profile, then a curve of the path.
+    label: 'Sweep', icon: 'sweep', pick: (p) => (p.profile ? 'path' : 'profile'),
+    defaults: (app) => ({ profile: null, path: null, corners: 'right', op: app.hasBodies() ? 'join' : 'new' }),
+    fields: [
+      { key: 'corners', label: 'Corners of the path', type: 'select', options: [['right', 'Sharp'], ['round', 'Rounded']] },
       { key: 'op', label: 'Operation', type: 'select', options: OPS },
     ],
   },
@@ -196,7 +213,10 @@ export const PRIMITIVES = ['box', 'cylinder', 'sphere', 'torus', 'cone'];
 export const PATTERNS = ['rectPattern', 'circPattern'];
 
 // Features that add or remove a solid; only these can be patterned or mirrored.
-const PATTERNABLE = new Set(['extrude', 'revolve', 'hole', 'stl', ...PRIMITIVES]);
+const PATTERNABLE = new Set(['extrude', 'revolve', 'loft', 'sweep', 'hole', 'stl', ...PRIMITIVES]);
+
+// Picking modes that show every sketch so profiles or curves can be clicked in any of them.
+const SKETCH_PICKS = new Set(['sections', 'profile', 'path']);
 
 const PICK_HINT = {
   regions: 'Click profiles to choose them (all are used by default). Drag the arrow to set the distance.',
@@ -206,6 +226,9 @@ const PICK_HINT = {
   face: 'Click a flat face, then drag the arrow or type a distance. Out adds material, in removes it.',
   place: 'Click an origin plane or a flat face to place it, then set sizes in the panel.',
   plane: 'Click an origin plane or a flat face to start the cut from.',
+  sections: 'Click the profiles to blend between, in order (each in its own sketch). Clicking again removes one.',
+  profile: 'Click the profile to sweep.',
+  path: 'Click a curve of the path. Curves joined end to end to it are used too.',
   bodies: 'Click bodies to select them.',
   features: 'Tick the features to repeat in the panel.',
   none: 'Set the units and scale. Use Move afterwards to position it.',
@@ -266,6 +289,11 @@ export class FeatureDialog {
   start() {
     if ((this.pick === 'regions') && !this.params.sketch) {
       this.app.setStatus('Create a sketch with a closed shape first.', 'warn');
+      this.app.endEdit();
+      return false;
+    }
+    if (SKETCH_PICKS.has(this.pick) && !this.app.sketchesBefore(this.stopAt).length) {
+      this.app.setStatus(this.type === 'loft' ? 'Draw a sketch for each profile to blend between first.' : 'Draw a sketch with the profile and one with the path first.', 'warn');
       this.app.endEdit();
       return false;
     }
@@ -586,7 +614,8 @@ export class FeatureDialog {
       const nothingPicked = {
         edges: !p.edges?.length, faces: this.type !== 'shell' && !p.faces?.length, point: !p.point, place: !p.point,
         face: !p.face || !Number(p.distance),
-        bodies: !p.bodies?.length && this.type !== 'split', plane: !p.normal, features: !p.features?.length, combine: !p.target || !p.tools?.length,
+        bodies: !p.bodies?.length && this.type !== 'split', plane: !p.normal,
+        sections: (p.sections?.length || 0) < 2, profile: true, path: !p.path, features: !p.features?.length, combine: !p.target || !p.tools?.length,
       }[this.pick];
       const error = res.draftError || res.errors?.[this.featureId] || '';
       this.errorBox.textContent = nothingPicked ? '' : error;
@@ -626,6 +655,12 @@ export class FeatureDialog {
     }
     this.selInfo = el('div', { class: 'sel-info' });
     body.append(this.selInfo);
+    if (this.type === 'sweep' && p.profile) {
+      body.append(el('button', {
+        class: 'btn small', title: 'Choose a different profile (the path is picked again after it)',
+        onclick: () => { p.profile = null; p.path = null; this.render(); this.update(); },
+      }, 'Pick another profile'));
+    }
     if (this.type === 'split' && p.normal) {
       body.append(el('button', {
         class: 'btn small', title: 'Start the cut from a different plane or face',
@@ -699,6 +734,12 @@ export class FeatureDialog {
         if (this.type === 'split' && !p.bodies.length) return 'Bodies: every one the plane crosses';
         return `Bodies: ${p.bodies.length} selected`;
       case 'plane': return 'Click an origin plane or a flat face';
+      case 'sections': {
+        const names = p.sections.map((s) => this.app.featureById(s.sketch)?.name || '?');
+        return names.length ? `Profiles in order: ${names.join(' → ')}` : 'Profiles: none yet';
+      }
+      case 'profile': return 'Click a profile';
+      case 'path': return p.path ? `Path: in ${this.app.featureById(p.path.sketch)?.name || '?'}` : 'Path: click a curve';
       case 'combine': {
         const name = this.app.bodies.find((b) => b.id === p.target)?.name;
         return `Target: ${name || 'none'} · Tools: ${p.tools.length}`;
@@ -720,6 +761,8 @@ export class FeatureDialog {
     if (this.placesPoint() || this.pick === 'face') { p.point = null; p.normal = null; p.face = null; this.render(); }
     if (this.pick === 'bodies') { p.bodies = []; this.selectionChanged(); }
     if (this.pick === 'features') { p.features = []; this.render(); }
+    if (this.pick === 'sections') p.sections = [];
+    if (this.pick === 'path') p.path = null;
     if (this.pick === 'combine') { p.target = null; p.tools = []; this.slot = 'target'; this.render(); this.app.renderTree(); }
     this.update();
   }
@@ -740,6 +783,7 @@ export class FeatureDialog {
         });
       }
     }
+    if (SKETCH_PICKS.has(this.pick)) this.showAllSketches();
     if (this.pick === 'edges') {
       for (const sig of p.edges) {
         const pts = this.vp.findEdge(sig);
@@ -787,6 +831,30 @@ export class FeatureDialog {
     this.vp.setOverlay(items);
     this.placeGizmo();
     this.placeArrows();
+  }
+
+  // Loft and Sweep: every earlier sketch, with its profiles (or, for a path, its curves) clickable.
+  showAllSketches() {
+    const p = this.params;
+    const h = this.hover;
+    const key = JSON.stringify([this.pick, p.sections, p.profile, p.path, h?.kind, h?.sketch, h?.index]);
+    if (key === this.sketchKey) return;
+    this.sketchKey = key;
+    const picked = this.type === 'loft' ? p.sections : p.profile ? [p.profile] : [];
+    this.vp.setSketches(this.app.sketchesBefore(this.stopAt).map((f) => {
+      const sk = { id: f.id, frame: sketchFrame(f.params), entities: f.params.entities };
+      const regions = picked.filter((s) => s.sketch === f.id).map((s) => s.index);
+      if (this.pick !== 'path') return { ...sk, showRegions: true, selectedRegions: regions };
+      // The path's chain is blue; the chain under the mouse is light blue.
+      const chainOf = (ref, color, out) => {
+        if (ref?.sketch !== f.id) return;
+        for (const it of curveChain(f.params.entities, ref.index)?.items || []) out[f.params.entities.indexOf(it.e)] = color;
+      };
+      const colors = [];
+      chainOf(h?.kind === 'entity' ? h : null, 0x6fb6ff, colors);
+      chainOf(p.path, 0x0a6cff, colors);
+      return { ...sk, colors, showRegions: regions.length > 0, selectedRegions: regions };
+    }));
   }
 
   placeGizmo() {
@@ -979,6 +1047,9 @@ export class FeatureDialog {
       face: { faces: true },
       place: { faces: true, planes: true },
       plane: { faces: true, planes: true },
+      sections: { regions: true },
+      profile: { regions: true },
+      path: { entities: true },
       bodies: { faces: true },
       combine: { faces: true },
       features: {},
@@ -1026,6 +1097,23 @@ export class FeatureDialog {
     }
     if (this.pick === 'plane') {
       if (this.setSplitPlane(hit)) { this.render(); this.update(); }
+      return;
+    }
+    if (SKETCH_PICKS.has(this.pick)) {
+      const ref = { sketch: hit.sketch, index: hit.index };
+      if (this.pick === 'sections') {
+        const i = p.sections.findIndex((s) => s.sketch === ref.sketch && s.index === ref.index);
+        if (i >= 0) p.sections.splice(i, 1);
+        else if (p.sections.some((s) => s.sketch === ref.sketch)) { this.app.setStatus('Each profile of a loft has to be in its own sketch.', 'warn'); return; }
+        else p.sections.push(ref);
+      } else if (this.pick === 'profile') {
+        p.profile = ref;
+        this.hover = null;
+      } else {
+        p.path = ref;
+      }
+      this.render();
+      this.update();
       return;
     }
     if (this.pick === 'bodies') {

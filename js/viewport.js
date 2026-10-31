@@ -228,7 +228,7 @@ export class Viewport {
         const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
         if (sk.dashed?.[i]) line.computeLineDistances();
         line.renderOrder = 5;
-        line.userData = { entity: i };
+        line.userData = { entity: i, sketch: sk.id };
         this.sketches.add(line);
       });
       if (sk.active && !sk.noDots) {
@@ -258,8 +258,11 @@ export class Viewport {
         side: THREE.DoubleSide, depthWrite: false,
       }));
       mesh.applyMatrix4(m);
+      // Pickable at once, not only after the next frame is drawn.
+      mesh.updateMatrixWorld();
       mesh.renderOrder = 4;
       mesh.userData.region = idx;
+      mesh.userData.sketch = sk.id;
       this.sketches.add(mesh);
       this.regionMeshes.push(mesh);
     });
@@ -508,7 +511,7 @@ export class Viewport {
     const rc = this.ray(ev);
     if (what.regions && this.regionMeshes.length) {
       const hit = rc.intersectObjects(this.regionMeshes)[0];
-      if (hit) return { kind: 'region', index: hit.object.userData.region };
+      if (hit) return { kind: 'region', index: hit.object.userData.region, sketch: hit.object.userData.sketch };
     }
     if (what.planes) {
       // The origin planes overlap on screen. Where they do, take the one seen most squarely:
@@ -524,7 +527,7 @@ export class Viewport {
     }
     if (what.entities) {
       const hit = rc.intersectObjects(this.sketches.children.filter((o) => o.isLine))[0];
-      if (hit) return { kind: 'entity', index: hit.object.userData.entity };
+      if (hit) return { kind: 'entity', index: hit.object.userData.entity, sketch: hit.object.userData.sketch };
     }
     const meshes = this.bodyData.filter((b) => b.mesh).map((b) => b.mesh);
     const faceHit = rc.intersectObjects(meshes)[0];

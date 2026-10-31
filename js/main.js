@@ -43,6 +43,8 @@ const SOLID_TOOLS = [
     ['sketch', 'Create Sketch', () => app.startSketch()],
     ['extrude', 'Extrude (E)', () => app.startFeature('extrude')],
     ['revolve', 'Revolve', () => app.startFeature('revolve')],
+    ['loft', 'Loft', () => app.startFeature('loft')],
+    ['sweep', 'Sweep', () => app.startFeature('sweep')],
     ['hole', 'Hole (H)', () => app.startFeature('hole')],
     ['primitives', 'Primitives ▾', () => app.toggleRow('primitives')],
     ['pattern', 'Pattern ▾', () => app.toggleRow('pattern')],
@@ -390,8 +392,13 @@ class App {
     this.pushUndo();
     if (index == null) {
       feature.name = feature.type === 'stl' ? feature.params.name.replace(/\.stl$/i, '') : this.nextName(feature.type);
-      if (feature.type === 'extrude' || feature.type === 'revolve') {
-        const sk = this.featureById(feature.params.sketch);
+      // The sketches a solid was made from are hidden, as in Fusion.
+      const p = feature.params;
+      const used = feature.type === 'extrude' || feature.type === 'revolve' ? [p.sketch]
+        : feature.type === 'loft' ? p.sections.map((s) => s.sketch)
+          : feature.type === 'sweep' ? [p.profile?.sketch, p.path?.sketch] : [];
+      for (const id of used) {
+        const sk = this.featureById(id);
         if (sk) sk.hidden = true;
       }
       this.doc.features.push(feature);
