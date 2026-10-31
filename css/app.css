@@ -104,6 +104,13 @@ input, select { font: inherit; color: inherit; }
 .sel-box { position: absolute; border: 1px solid var(--accent); background: rgba(10,108,255,.08); pointer-events: none; }
 .sel-box.crossing { border: 1px dashed #2e9e45; background: rgba(46,158,69,.08); }
 .sel-box[hidden] { display: none; }
+/* Snap marker: square = corner or origin, triangle = midpoint, ring = centre, dot = on an edge or axis */
+.snap-marker { position: absolute; width: 11px; height: 11px; margin: -6px 0 0 -6px; pointer-events: none; box-sizing: border-box;
+  border: 2px solid #ff8a00; background: rgba(255,138,0,.25); z-index: 5; }
+.snap-marker[hidden] { display: none; }
+.snap-marker.mid { border: none; background: #ff8a00; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.snap-marker.center { border-radius: 50%; background: none; }
+.snap-marker.edge, .snap-marker.axis { width: 9px; height: 9px; margin: -5px 0 0 -5px; border-radius: 50%; border: none; background: #ff8a00; }
 
 #dim-box { position: absolute; display: flex; gap: 6px; background: #fff; border: 1px solid var(--accent); border-radius: 5px; padding: 4px 6px; box-shadow: 0 2px 8px rgba(0,0,0,.15); pointer-events: auto; }
 #dim-box[hidden] { display: none; }

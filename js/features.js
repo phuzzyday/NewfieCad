@@ -9,6 +9,7 @@ import {
 } from './shape-drag.js';
 import { primitiveOutline, pressPullOutline, extrudeOutline, moveOutline, movedFacesOutline } from './outline.js';
 import { THREADS } from './threads.js';
+import { snapPoint } from './snap.js';
 
 const OPS = [['join', 'Join'], ['cut', 'Cut'], ['new', 'New Body']];
 const PRIM_OPS = [['new', 'New Body'], ['join', 'Join'], ['cut', 'Cut']];
@@ -343,6 +344,7 @@ export class FeatureDialog {
     window.removeEventListener('keydown', this.keyHandler);
     this.hideDim();
     this.vp.setOutline(null);
+    this.vp.setSnapMarker(null);
     this.vp.renderer.domElement.style.cursor = '';
   }
 
@@ -425,11 +427,21 @@ export class FeatureDialog {
     return { origin: this.anchor, xDir: x, yDir: y, normal: this.params.normal };
   }
 
-  // Sizes snap to 1 mm; hold Shift for 0.1 mm.
+  // Sizes snap to 1 mm; hold Shift for 0.1 mm. The far corner (or the edge of a round
+  // shape) also snaps to corners, edges and axes in its plane, exactly; Alt turns that off.
   dragStage(ev) {
-    const p = this.params, step = ev.shiftKey ? 0.1 : 1;
-    const uv = this.vp.planeHit(ev, this.stageFrame());
+    const p = this.params;
+    let step = ev.shiftKey ? 0.1 : 1;
+    const fr = this.stageFrame();
+    let uv = this.vp.planeHit(ev, fr);
+    let snap = null;
     if (this.stage === 'size') {
+      snap = ev.altKey ? null : snapPoint(this.vp, ev, fr.origin, fr.normal);
+      if (snap) {
+        const d = snap.point.map((v, i) => v - fr.origin[i]);
+        uv = [dot(d, fr.xDir), dot(d, fr.yDir)];
+        step = 0.001;
+      }
       if (!uv) return;
       this.lastUV = uv;
       dragSize(this.type, p, this.anchor, uv, step);
@@ -440,9 +452,57 @@ export class FeatureDialog {
     }
     this.lastEv = ev;
     this.render();
+    this.showSnap(snap);
     this.showOutline();
     this.update(true, true);
     this.showDim();
+  }
+
+  // ---------- snapping a placed point ----------
+
+  // Snap a point being placed on the face or origin plane under the mouse to corners,
+  // midpoints, centres, edges and the origin axes. Alt places it freely.
+  // Returns { snap, hit }: the hit can change to a face just beside the mouse.
+  snapHit(ev, hit) {
+    if (ev.altKey || !this.placesPoint()) return { snap: null, hit };
+    const on = (h, point) => {
+      const n = h.kind === 'plane' ? PLANES[h.name].normal : h.normal;
+      const s = snapPoint(this.vp, ev, h.kind === 'plane' ? [0, 0, 0] : point, n);
+      if (s) { h.point = s.point; h.snapped = true; }
+      return s;
+    };
+    if (hit?.kind === 'face' ? hit.flat : hit?.kind === 'plane') {
+      const s = on(hit, hit.point);
+      if (s || hit.kind === 'face') return { snap: s, hit };
+    }
+    // Just off a face (over a plane or empty space): its edges and corners should still
+    // catch the mouse, so try the flat faces a few pixels around it. A corner belongs to
+    // several faces; take the one seen most squarely, as with the origin planes.
+    const dir = this.vp.ray(ev).ray.direction;
+    const seen = new Set();
+    let best = null;
+    for (const r of [6, 11]) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4;
+        const h = this.vp.pick({ clientX: ev.clientX + r * Math.cos(a), clientY: ev.clientY + r * Math.sin(a) }, { faces: true });
+        if (h?.kind !== 'face' || !h.flat || seen.has(`${h.body}:${h.group}`)) continue;
+        seen.add(`${h.body}:${h.group}`);
+        // On a tie (looking at a corner diagonally) a face pointing up wins: things usually sit on top.
+        const square = Math.abs(dir.x * h.normal[0] + dir.y * h.normal[1] + dir.z * h.normal[2]) + 0.05 * Math.max(0, h.normal[2]);
+        if (best && square <= best.square) continue;
+        const s = on(h, h.point);
+        if (s) best = { snap: s, hit: h, square };
+      }
+    }
+    return best || { snap: null, hit };
+  }
+
+  // The snap marker, and its name in the status bar.
+  showSnap(s) {
+    this.vp.setSnapMarker(s?.point, s?.kind);
+    if (s) this.app.setStatus(`${s.label}. Hold Alt to place without snapping.`);
+    else if (this.snapShown) this.app.setStatus(this.hintText);
+    this.snapShown = !!s;
   }
 
   // Box at the cursor for typing exact sizes, as in sketches.
@@ -667,7 +727,10 @@ export class FeatureDialog {
   render() {
     this.autoPick();
     const stageHint = this.pick === 'place' && this.stage !== 'point' && STAGE_HINT[this.stage || 'adjust'](this.type);
-    this.app.setStatus(stageHint || this.def.hint?.[this.pick] || PICK_HINT[this.pick]);
+    this.hintText = stageHint || this.def.hint?.[this.pick] || PICK_HINT[this.pick];
+    this.app.setStatus(this.hintText);
+    this.vp.setSnapMarker(null);
+    this.snapShown = false;
     const body = this.app.openPanel(this.def.title || this.def.label, [
       { label: 'OK', primary: true, onClick: () => this.ok() },
       { label: 'Cancel', onClick: () => this.cancel() },
@@ -1140,6 +1203,11 @@ export class FeatureDialog {
     }
     this.hover = this.vp.pick(ev, this.pickWhat());
     if (this.pick === 'face' && !this.hover?.flat) this.hover = null;
+    if (this.placesPoint()) {
+      const { snap, hit } = this.snapHit(ev, this.hover);
+      this.hover = hit;
+      this.showSnap(snap);
+    }
     if (this.pick === 'place' || this.pick === 'plane') {
       // Light up the origin plane a click would use.
       const name = this.hover?.kind === 'plane' ? this.hover.name : null;
@@ -1148,17 +1216,19 @@ export class FeatureDialog {
     this.refreshPicks();
   }
 
-  onLeave() { this.hover = null; this.refreshPicks(); }
+  onLeave() { this.hover = null; this.showSnap(null); this.refreshPicks(); }
 
   onClick(ev) {
     if (this.dragging()) { this.dragStage(ev); this.advanceStage(); return; }
     // A click on empty space (no body, profile or plane under it) is OK, once the step is valid.
     const what = this.pickWhat();
-    if (!this.vp.pick(ev, { ...what, faces: true, regions: true })) {
+    // A point placed just beside a body can snap onto it, so that isn't empty space.
+    const { snap, hit } = this.snapHit(ev, this.vp.pick(ev, what));
+    this.showSnap(null);
+    if (!snap && !this.vp.pick(ev, { ...what, faces: true, regions: true })) {
       if (this.valid) this.ok();
       return;
     }
-    const hit = this.vp.pick(ev, what);
     if (!hit) return;
     const p = this.params;
     if (this.pick === 'combine') {
@@ -1227,7 +1297,8 @@ export class FeatureDialog {
     } else if (hit.kind === 'plane' && this.pick === 'place') {
       // On an origin plane, snap to whole millimetres.
       const pl = PLANES[hit.name];
-      p.point = hit.point.map((v) => Math.round(v));
+      // A snapped point stays exact; otherwise whole millimetres.
+      p.point = hit.snapped ? hit.point : hit.point.map((v) => Math.round(v));
       p.normal = pl.normal;
       p.xDir = pl.xDir;
       p.face = null;

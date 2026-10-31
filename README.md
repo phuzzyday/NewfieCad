@@ -97,6 +97,11 @@ double-click two bodies and press M to move them, or select a flat face and clic
    Draw it like in Fusion: click an origin plane (snaps to whole millimetres) or a flat face, move the mouse and click to set the size,
    then move and click to set the height. For a Box the first click is a corner; for the round shapes it is the centre.
    While moving, type a number to enter it exactly (Tab between Width and Depth, Enter applies). Sizes snap to 1 mm; Shift gives 0.1 mm.
+   **Snapping:** the first click and the second (a box's far corner, a round shape's size) snap to corners, edge
+   midpoints, circle and arc centres and edges in the plane you're drawing on, and on the origin planes to the
+   origin and the X/Y/Z axes. An orange marker shows where (square: corner or origin, triangle: midpoint, ring:
+   centre, dot: on an edge or axis) and the status bar names it. Being just beside a face is enough. Hold **Alt**
+   to place freely. Hole placement snaps the same way, for example onto the centre of a round face.
    Afterwards, drag the arrows on the shape or change the numbers in the panel. To move it, drag the shape itself
    (or its blue base point): it slides along the plane or face it sits on and keeps its size.
    While you drag, a blue outline follows the mouse at once; the shaded result catches up a moment later.
@@ -199,6 +204,7 @@ js/outline.js       instant outlines shown while dragging
 js/select.js        selecting outside commands (click, Ctrl, box)
 js/stl.js           STL reading and the mesh format stored in projects
 js/threads.js       thread sizes (metric, UNC, UNF), shared with the kernel
+js/snap.js          snapping placed points to corners, midpoints, centres, edges and axes
 js/simplify.js      mesh simplification (run by js/simplify-worker.js)
 js/kernel.js        talks to the kernel worker
 js/kernel-worker.js replicad / OpenCascade feature rebuild

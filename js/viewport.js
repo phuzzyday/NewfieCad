@@ -516,7 +516,9 @@ export class Viewport {
     if (what.planes) {
       // The origin planes overlap on screen. Where they do, take the one seen most squarely:
       // looking down, that is the floor, not a vertical plane that happens to be in front.
-      const squareness = (h) => Math.abs(rc.ray.direction.dot(new THREE.Vector3(...PLANES[h.object.userData.plane].normal)));
+      // On a tie (the corner view) the floor wins.
+      const squareness = (h) => Math.abs(rc.ray.direction.dot(new THREE.Vector3(...PLANES[h.object.userData.plane].normal)))
+        + (h.object.userData.plane === 'XY' ? 0.05 : 0);
       const hit = rc.intersectObjects(this.planes.children.filter((o) => o.isMesh))
         .sort((a, b) => squareness(b) - squareness(a))[0];
       // Origin planes are see-through, so any body face under the cursor wins.
@@ -559,6 +561,29 @@ export class Viewport {
       }
     }
     return null;
+  }
+
+  // A world point's position on screen, in client pixels.
+  toScreen(p) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.camera.updateMatrixWorld();
+    const v = new THREE.Vector3(...p).project(this.camera);
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+  }
+
+  // A small marker where a point snapped (kind: corner, mid, center, edge, axis, origin), or none.
+  setSnapMarker(point, kind) {
+    if (!this.snapEl) {
+      this.snapEl = document.createElement('div');
+      this.el.appendChild(this.snapEl);
+    }
+    this.snapEl.hidden = !point;
+    if (!point) return;
+    const [x, y] = this.toScreen(point);
+    const r = this.el.getBoundingClientRect();
+    this.snapEl.className = `snap-marker ${kind}`;
+    this.snapEl.style.left = `${x - r.left}px`;
+    this.snapEl.style.top = `${y - r.top}px`;
   }
 
   // Intersection of the mouse ray with a sketch plane, in local (u, v).
