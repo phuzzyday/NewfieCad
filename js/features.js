@@ -8,6 +8,7 @@ import {
   STAGES, primFrame, dragSize, dragHeight, typedSize, primArrows, applyPrimArrow, extrudeArrow, applyExtrudeArrow,
 } from './shape-drag.js';
 import { primitiveOutline, pressPullOutline, extrudeOutline, moveOutline } from './outline.js';
+import { THREADS } from './threads.js';
 
 const OPS = [['join', 'Join'], ['cut', 'Cut'], ['new', 'New Body']];
 const PRIM_OPS = [['new', 'New Body'], ['join', 'Join'], ['cut', 'Cut']];
@@ -102,6 +103,16 @@ export const FEATURE_TYPES = {
       { key: 'depth', label: 'Depth (mm)', type: 'number', hideIf: (p) => p.through },
       { key: 'cbDiameter', label: 'Counterbore Ø (mm)', type: 'number', hideIf: (p) => p.kind !== 'counterbore' },
       { key: 'cbDepth', label: 'Counterbore depth (mm)', type: 'number', hideIf: (p) => p.kind !== 'counterbore' },
+    ],
+  },
+  thread: {
+    label: 'Thread', icon: 'thread', pick: 'round',
+    defaults: () => ({ face: null, point: null, size: 'auto', length: 0, clearance: 0.2, left: false }),
+    fields: [
+      { key: 'size', label: 'Size', type: 'select', options: [['auto', 'Fit the face'], ...THREADS.map((t) => [t.id, t.label])] },
+      { key: 'length', label: 'Length (mm, 0 = whole face)', type: 'number' },
+      { key: 'clearance', label: 'Print clearance (mm)', type: 'number' },
+      { key: 'left', label: 'Left-handed', type: 'checkbox' },
     ],
   },
   pressPull: {
@@ -228,6 +239,7 @@ const PICK_HINT = {
   plane: 'Click an origin plane or a flat face to start the cut from.',
   sections: 'Click the profiles to blend between, in order (each in its own sketch). Clicking again removes one.',
   profile: 'Click the profile to sweep.',
+  round: 'Click a round face: the outside of a shaft, or the inside of a hole. A partial length starts from the end nearest the click.',
   path: 'Click a curve of the path. Curves joined end to end to it are used too.',
   bodies: 'Click bodies to select them.',
   features: 'Tick the features to repeat in the panel.',
@@ -583,6 +595,11 @@ export class FeatureDialog {
         break;
       }
       case 'point': case 'place': if (flatFace) this.placeOnFace(flatFace); break;
+      case 'round': {
+        const f = items.find((it) => it.kind === 'face' && !it.flat);
+        if (f) { p.face = f.sig; p.point = f.point || f.sig.c; }
+        break;
+      }
       case 'plane':
         // Split: a selected face sets the plane, selected bodies are the ones to split.
         p.bodies = [...new Set(items.filter((it) => it.kind === 'body').map((it) => it.body))];
@@ -615,10 +632,11 @@ export class FeatureDialog {
         edges: !p.edges?.length, faces: this.type !== 'shell' && !p.faces?.length, point: !p.point, place: !p.point,
         face: !p.face || !Number(p.distance),
         bodies: !p.bodies?.length && this.type !== 'split', plane: !p.normal,
-        sections: (p.sections?.length || 0) < 2, profile: true, path: !p.path, features: !p.features?.length, combine: !p.target || !p.tools?.length,
+        sections: (p.sections?.length || 0) < 2, profile: true, path: !p.path, round: !p.face, features: !p.features?.length, combine: !p.target || !p.tools?.length,
       }[this.pick];
       const error = res.draftError || res.errors?.[this.featureId] || '';
       this.errorBox.textContent = nothingPicked ? '' : error;
+      if (this.noteBox) this.noteBox.textContent = nothingPicked || error ? '' : res.draftNote || '';
       this.valid = !nothingPicked && !error;
       this.refreshPicks();
     };
@@ -710,8 +728,9 @@ export class FeatureDialog {
         body.append(field(`Position ${axis}`, input));
       });
     }
+    this.noteBox = el('div', { class: 'muted' });
     this.errorBox = el('div', { class: 'error-text' });
-    body.append(this.errorBox);
+    body.append(this.noteBox, this.errorBox);
     this.refreshPicks();
   }
 
@@ -739,6 +758,7 @@ export class FeatureDialog {
         return names.length ? `Profiles in order: ${names.join(' → ')}` : 'Profiles: none yet';
       }
       case 'profile': return 'Click a profile';
+      case 'round': return p.face ? 'Face picked (click another to change)' : 'Click a round face';
       case 'path': return p.path ? `Path: in ${this.app.featureById(p.path.sketch)?.name || '?'}` : 'Path: click a curve';
       case 'combine': {
         const name = this.app.bodies.find((b) => b.id === p.target)?.name;
@@ -763,6 +783,7 @@ export class FeatureDialog {
     if (this.pick === 'features') { p.features = []; this.render(); }
     if (this.pick === 'sections') p.sections = [];
     if (this.pick === 'path') p.path = null;
+    if (this.pick === 'round') { p.face = null; p.point = null; }
     if (this.pick === 'combine') { p.target = null; p.tools = []; this.slot = 'target'; this.render(); this.app.renderTree(); }
     this.update();
   }
@@ -816,6 +837,11 @@ export class FeatureDialog {
       if (this.hover?.kind === 'face' && this.hover.body !== p.target && !p.tools.includes(this.hover.body)) {
         items.push({ kind: 'body', body: this.hover.body, color: 0x6fb6ff });
       }
+    }
+    if (this.pick === 'round') {
+      const f = p.face && this.vp.findFace(p.face);
+      if (f) items.push({ kind: 'face', ...f, color: 0x0a6cff });
+      if (this.hover?.kind === 'face' && !this.hover.flat) items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
     }
     if (this.pick === 'plane' && this.hover?.kind === 'face' && this.hover.flat) {
       items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
@@ -1050,6 +1076,7 @@ export class FeatureDialog {
       sections: { regions: true },
       profile: { regions: true },
       path: { entities: true },
+      round: { faces: true },
       bodies: { faces: true },
       combine: { faces: true },
       features: {},
@@ -1097,6 +1124,15 @@ export class FeatureDialog {
     }
     if (this.pick === 'plane') {
       if (this.setSplitPlane(hit)) { this.render(); this.update(); }
+      return;
+    }
+    if (this.pick === 'round') {
+      if (hit.kind !== 'face') return;
+      if (hit.flat) { this.app.setStatus('Click a round face: the outside of a shaft, or the inside of a hole.', 'warn'); return; }
+      p.face = hit.sig;
+      p.point = hit.point;
+      this.render();
+      this.update();
       return;
     }
     if (SKETCH_PICKS.has(this.pick)) {

@@ -6,6 +6,7 @@ import opencascade from '../lib/replicad-opencascadejs/dist/replicad_single.js';
 import * as R from '../lib/replicad/dist/replicad.js';
 import { buildProfiles, sketchFrame, curveChain, toWorld, rectCorners } from './profiles.js';
 import { decodeMesh, meshToSTL } from './stl.js';
+import { threadById, nearestThread, fitDiameter } from './threads.js';
 
 const WASM_URL = new URL('../lib/replicad-opencascadejs/dist/replicad_single.wasm', import.meta.url).href;
 
@@ -315,6 +316,66 @@ function pressPull(state, f) {
   const face = m.face.clone().translate(mul(n, lead));
   const tool = R.basicFaceExtrusion(face, new R.Vector(mul(n, d - lead)));
   state.bodies = state.bodies.map((b, i) => (i === m.bi ? { ...b, shape: d > 0 ? b.shape.fuse(tool) : b.shape.cut(tool) } : b));
+}
+
+// The axis, radius and extent of a cylindrical face, and whether it is a hole.
+function cylinderOf(m) {
+  const oc = R.getOC();
+  const ad = new oc.BRepAdaptor_Surface(m.face.wrapped, false);
+  const cyl = ad.Cylinder();
+  const ax = cyl.Axis(), loc = ax.Location(), dir = ax.Direction();
+  const o = [loc.X(), loc.Y(), loc.Z()], a = [dir.X(), dir.Y(), dir.Z()], r = cyl.Radius();
+  const { uMin, uMax, vMin, vMax } = m.face.UVBounds;
+  const pt = ad.Value((uMin + uMax) / 2, (vMin + vMax) / 2), at = [pt.X(), pt.Y(), pt.Z()];
+  [pt, dir, loc, ax, cyl, ad].forEach((x) => x.delete());
+  // A hole's surface faces its axis; a shaft's faces away from it.
+  const radial = sub(at, add(o, mul(a, dot(sub(at, o), a))));
+  const n = m.face.normalAt(at).toTuple();
+  return { o, a, r, z0: vMin, z1: vMax, internal: dot(n, radial) < 0 };
+}
+
+// Thread: cut a 60° thread groove along a helix into a round face. Outside threads are
+// cut down from the major diameter, inside threads out from a hole to it; the clearance
+// cuts that much deeper (on the diameter) so printed parts fit together.
+function thread(state, f) {
+  const p = f.params;
+  if (!p.face) throw new Error('Click a round face');
+  const m = matchFace(state, p.face);
+  if (!m) throw new Error('The face is missing');
+  if (m.face.geomType !== 'CYLINDRE') throw new Error('Threads go on a round face: a shaft or a hole');
+  const { o, a, r, z0, z1, internal } = cylinderOf(m);
+  const t = p.size === 'auto' || !p.size ? nearestThread(2 * r, internal) : threadById(p.size);
+  if (!t) throw new Error('Unknown thread size');
+  const P = t.p;
+  const fit = fitDiameter(t, internal);
+  const round = (v) => Math.round(v * 100) / 100;
+  state.note = `${t.label}, ${internal ? 'inside thread (hole)' : 'outside thread'}. Face Ø${round(2 * r)} mm`
+    + (Math.abs(2 * r - fit) > 0.1 * P ? `; this size expects Ø${round(fit)} mm.` : '.');
+  // Which part of the face: all of it, or `length` from the end nearest the click.
+  const full = z1 - z0;
+  const L = Number(p.length) > 0 ? Math.min(Number(p.length), full) : full;
+  const zc = p.point ? dot(sub(p.point, o), a) : z0;
+  const start = zc > (z0 + z1) / 2 ? z1 - L : z0;
+  // The groove's cross-section, in the plane through the axis (x outward, y along it).
+  const c = Math.max(0, Number(p.clearance) || 0) / 2;
+  const h = 0.5413 * P; // 5H/8 of the basic profile, H = 0.866 P
+  const e = 0.05 * P, tan30 = Math.tan(Math.PI / 6);
+  const R0 = t.d / 2 + (internal ? c : -c);
+  const pts = internal
+    ? [[R0, -P / 16], [R0, P / 16], [R0 - h - e, P / 16 + (h + e) * tan30], [R0 - h - e, -P / 16 - (h + e) * tan30]]
+    : [[R0 - h, -P / 8], [R0 - h, P / 8], [R0 + e, P / 8 + (h + e) * tan30], [R0 + e, -P / 8 - (h + e) * tan30]];
+  // Sweep it along a helix that runs a pitch past each end, then keep only the threaded length.
+  const base = add(o, mul(a, start - P));
+  const helix = R.makeHelix(P, L + 2 * P, R0, base, a, !!p.left);
+  const u0 = sub(helix.startPoint.toTuple(), base);
+  const u = mul(u0, 1 / len(u0));
+  let pen = R.draw(pts[0]);
+  for (const q of pts.slice(1)) pen = pen.lineTo(q);
+  const profile = pen.close().sketchOnPlane(new R.Plane(base, u, cross(u, a))).wire;
+  const groove = R.genericSweep(profile, helix, { frenet: true });
+  const slab = R.makeCylinder(t.d / 2 + 2 * P, L, add(o, mul(a, start)), a);
+  const cut = groove.intersect(slab);
+  state.bodies = state.bodies.map((b, i) => (i === m.bi ? { ...b, shape: b.shape.cut(cut) } : b));
 }
 
 // Placement point of a hole or primitive. If it was placed on a face, it follows
@@ -655,6 +716,7 @@ function runFeature(state, f) {
     case 'combine': combine(state, f); break;
     case 'remove': removeBodies(state, f); break;
     case 'split': split(state, f); break;
+    case 'thread': thread(state, f); break;
     case 'rectPattern': case 'circPattern': case 'mirror': pattern(state, f); break;
     case 'fillet': edgeFeature(state, f, 'fillet', Number(p.radius)); break;
     case 'chamfer': edgeFeature(state, f, 'chamfer', Number(p.distance)); break;
@@ -750,11 +812,13 @@ function build(msg) {
     transfer.push(...base.transfer);
   }
 
-  let preview = null, draftError = null;
+  let preview = null, draftError = null, draftNote = null;
   if (msg.draft) {
     const snapshot = copyState(state);
+    snapshot.note = null; // only the step being edited reports a note
     try {
       runFeature(snapshot, msg.draft);
+      draftNote = snapshot.note || null;
       tidyBodies(snapshot);
       const before = new Set(state.bodies);
       const changed = snapshot.bodies.filter((b) => !before.has(b));
@@ -765,7 +829,7 @@ function build(msg) {
       transfer.push(...pm.transfer);
     } catch (e) { draftError = errText(e); }
   }
-  self.postMessage({ type: 'built', id: msg.id, baseKey: key, bodies, preview, errors, warnings, draftError }, transfer);
+  self.postMessage({ type: 'built', id: msg.id, baseKey: key, bodies, preview, errors, warnings, draftError, draftNote }, transfer);
 }
 
 function errText(e) {

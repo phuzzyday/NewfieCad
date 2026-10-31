@@ -7,6 +7,7 @@ export const ICONS = {
   extrude: svg('<path d="M4 16l8 4 8-4-8-4z" fill="currentColor" fill-opacity=".15"/><path d="M4 16V8l8-4 8 4v8M12 12V4M12 12l8-4M12 12L4 8"/>'),
   revolve: svg('<ellipse cx="12" cy="17" rx="8" ry="3"/><path d="M4 17V8M20 17V8"/><ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M12 2v20" stroke-dasharray="2 2"/>'),
   hole: svg('<path d="M3 9l9-4 9 4-9 4z"/><path d="M3 9v8l9 4 9-4V9"/><ellipse cx="12" cy="9" rx="3" ry="1.4" fill="currentColor"/>'),
+  thread: svg('<path d="M8 3v18M16 3v18"/><path d="M8 5l8 2M8 9l8 2M8 13l8 2M8 17l8 2"/>'),
   loft: svg('<rect x="5" y="16" width="14" height="5" rx="0.5"/><ellipse cx="12" cy="5" rx="4" ry="1.8"/><path d="M5 16L8 5M19 16L16 5"/>'),
   sweep: svg('<path d="M4 20c0-8 4-14 14-14" stroke-dasharray="2 2"/><circle cx="4" cy="19" r="2.5"/><path d="M15 3.5l3 2.5-3 2.5"/><path d="M6.5 19c0-6 3-11 11.5-11M1.5 19c0-8 5-15.5 16.5-15.5"/>'),
   fillet: svg('<path d="M4 20V10a6 6 0 0 1 6-6h10"/><path d="M4 4h4M4 4v4" stroke-dasharray="1.5 1.5"/>'),

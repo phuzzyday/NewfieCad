@@ -46,6 +46,7 @@ const SOLID_TOOLS = [
     ['loft', 'Loft', () => app.startFeature('loft')],
     ['sweep', 'Sweep', () => app.startFeature('sweep')],
     ['hole', 'Hole (H)', () => app.startFeature('hole')],
+    ['thread', 'Thread', () => app.startFeature('thread')],
     ['primitives', 'Primitives ▾', () => app.toggleRow('primitives')],
     ['pattern', 'Pattern ▾', () => app.toggleRow('pattern')],
     ['mirror', 'Mirror', () => app.startFeature('mirror')],

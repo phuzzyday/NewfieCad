@@ -13,7 +13,7 @@ const APP_FILES = [
   './', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'css/app.css',
   ...['features', 'geom2d', 'gizmo', 'icons', 'io', 'kernel-worker', 'kernel', 'main', 'outline', 'profiles', 'select',
     'shape-drag', 'simplify-worker', 'simplify', 'sketch-labels', 'sketch-model', 'sketch-tools', 'sketch', 'solver', 'stl',
-    'timeline', 'tree', 'ui', 'viewcube', 'viewport'].map((n) => `js/${n}.js`),
+    'threads', 'timeline', 'tree', 'ui', 'viewcube', 'viewport'].map((n) => `js/${n}.js`),
 ];
 
 const LIB_FILES = [

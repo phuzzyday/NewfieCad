@@ -84,6 +84,12 @@ double-click two bodies and press M to move them, or select a flat face and clic
    XY and the path on XZ. Holes in the profile run along the whole path, so two circles make a tube.
    **Corners** sets whether sharp corners in the path are mitred (Sharp) or rounded.
 4. Add **Fillet**, **Chamfer** (click edges), **Shell** or **Hole** (click a flat face).
+   **Thread** cuts a real, printable thread into a round face: click the outside of a shaft or the inside of a hole.
+   It works out which it is, and **Size: Fit the face** picks the metric or UNC size that matches its diameter
+   (a shaft at the thread's full size, for example 10 mm for M10; a hole at its tap drill size, for example 8.4 mm for M10).
+   Or choose any metric (M2 to M36) or UNC/UNF (1/4" to 1") size; the panel warns if the face is the wrong diameter for it.
+   **Length** 0 threads the whole face; a shorter length starts from the end nearest your click.
+   **Print clearance** (default 0.2 mm) cuts that much deeper so printed screws and nuts turn freely; raise it if yours bind.
    Shell: click faces to remove for an open shell, or pick none to hollow the body sealed.
    With several bodies, set Type to **Hollow (sealed)** and click the body. A sealed hollow traps resin on resin printers; add a drain hole.
 5. Or skip the sketch: **Primitives ▾** opens a row of buttons under the toolbar for Box, Cylinder, Sphere, Torus and Cone.
@@ -186,6 +192,7 @@ js/shape-drag.js    drawing primitives by dragging, and resize arrows
 js/outline.js       instant outlines shown while dragging
 js/select.js        selecting outside commands (click, Ctrl, box)
 js/stl.js           STL reading and the mesh format stored in projects
+js/threads.js       thread sizes (metric, UNC, UNF), shared with the kernel
 js/simplify.js      mesh simplification (run by js/simplify-worker.js)
 js/kernel.js        talks to the kernel worker
 js/kernel-worker.js replicad / OpenCascade feature rebuild
