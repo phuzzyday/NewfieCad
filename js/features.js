@@ -108,6 +108,16 @@ export const FEATURE_TYPES = {
       { key: 'about', label: 'Scale about', type: 'select', options: [['center', 'Centre of the bodies'], ['origin', 'Origin']] },
     ],
   },
+  split: {
+    // First a plane or face, then (optionally) the bodies to split.
+    label: 'Split Body', icon: 'split', pick: (p) => (p.normal ? 'bodies' : 'plane'),
+    hint: { bodies: 'Drag the arrow to move the cut. Click bodies to split only those (none = every body it crosses).' },
+    defaults: () => ({ point: null, normal: null, face: null, offset: 0, bodies: [], keep: 'both' }),
+    fields: [
+      { key: 'offset', label: 'Offset (mm)', type: 'number', flip: true },
+      { key: 'keep', label: 'Keep', type: 'select', options: [['both', 'Both halves'], ['front', 'Arrow side only'], ['back', 'Other side only']] },
+    ],
+  },
   remove: {
     label: 'Remove', icon: 'remove', pick: 'bodies',
     defaults: () => ({ bodies: [] }),
@@ -195,6 +205,7 @@ const PICK_HINT = {
   point: 'Click a flat face where the hole should go.',
   face: 'Click a flat face, then drag the arrow or type a distance. Out adds material, in removes it.',
   place: 'Click an origin plane or a flat face to place it, then set sizes in the panel.',
+  plane: 'Click an origin plane or a flat face to start the cut from.',
   bodies: 'Click bodies to select them.',
   features: 'Tick the features to repeat in the panel.',
   none: 'Set the units and scale. Use Move afterwards to position it.',
@@ -259,7 +270,7 @@ export class FeatureDialog {
       return false;
     }
     this.vp.tool = this;
-    if (this.pick === 'place') this.vp.showOriginPlanes(true);
+    this.showPlanes();
     if (this.def.gizmo) this.gizmo = new Gizmo(this.vp);
     if (this.type === 'shell' && this.preselect?.length && this.preselect.every((it) => it.kind === 'body')) this.params.mode = 'bodies';
     if (this.preselect?.length) this.applySelection(this.preselect);
@@ -276,7 +287,8 @@ export class FeatureDialog {
     clearTimeout(this.timer);
     this.vp.tool = null;
     this.vp.setOverlay([]);
-    if (this.pick === 'place') this.vp.showOriginPlanes(this.app.showOrigin);
+    if (this.planesShown) this.vp.showOriginPlanes(this.app.showOrigin);
+    this.planesShown = false;
     this.gizmo?.dispose();
     this.gizmo = null;
     this.arrows.forEach((a) => a.gizmo.dispose());
@@ -286,6 +298,50 @@ export class FeatureDialog {
     this.hideDim();
     this.vp.setOutline(null);
     this.vp.renderer.domElement.style.cursor = '';
+  }
+
+  // The origin planes are shown while a plane can be clicked.
+  showPlanes() {
+    const want = this.pick === 'place' || this.pick === 'plane';
+    if (want === !!this.planesShown) return;
+    this.vp.showOriginPlanes(want || this.app.showOrigin);
+    this.planesShown = want;
+    this.hoverPlane = null;
+  }
+
+  // ---------- Split Body's cut plane ----------
+
+  setSplitPlane(hit) {
+    const p = this.params;
+    if (hit.kind === 'plane') {
+      Object.assign(p, { normal: PLANES[hit.name].normal, point: [0, 0, 0], face: null });
+    } else {
+      if (!hit.flat) { this.app.setStatus('Pick a flat face, or an origin plane.', 'warn'); return false; }
+      Object.assign(p, { normal: hit.sig.n, point: (hit.point || hit.sig.c).map((v) => Math.round(v * 1000) / 1000), face: hit.sig });
+    }
+    p.offset = 0;
+    this.hover = null;
+    this.showPlanes();
+    return true;
+  }
+
+  // The cut plane as a square around the bodies it splits: { center, corners }.
+  splitSquare() {
+    const p = this.params;
+    if (!p.normal) return null;
+    const n = p.normal;
+    const box = new THREE.Box3();
+    for (const b of this.vp.bodyData) {
+      if (p.bodies.length ? !p.bodies.includes(b.id) : !b.mesh) continue;
+      for (let i = 0; i < b.vertices.length; i += 3) box.expandByPoint(new THREE.Vector3(b.vertices[i], b.vertices[i + 1], b.vertices[i + 2]));
+    }
+    const o = p.point.map((v, i) => v + n[i] * (Number(p.offset) || 0));
+    const c0 = box.isEmpty() ? o : box.getCenter(new THREE.Vector3()).toArray();
+    const center = c0.map((v, i) => v - n[i] * dot(c0.map((w, k) => w - o[k]), n));
+    const h = box.isEmpty() ? 20 : Math.max(...box.getSize(new THREE.Vector3()).toArray()) * 0.6 + 5;
+    const u = xDirFor(n), v = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+    const at = (a, b) => center.map((x, i) => x + (u[i] * a + v[i] * b) * h);
+    return { center, corners: [at(-1, -1), at(1, -1), at(1, 1), at(-1, 1)] };
   }
 
   // While dragging, an outline drawn straight from the numbers follows the mouse at once.
@@ -499,6 +555,11 @@ export class FeatureDialog {
         break;
       }
       case 'point': case 'place': if (flatFace) this.placeOnFace(flatFace); break;
+      case 'plane':
+        // Split: a selected face sets the plane, selected bodies are the ones to split.
+        p.bodies = [...new Set(items.filter((it) => it.kind === 'body').map((it) => it.body))];
+        if (flatFace) this.setSplitPlane({ ...flatFace, kind: 'face' });
+        break;
     }
   }
 
@@ -525,7 +586,7 @@ export class FeatureDialog {
       const nothingPicked = {
         edges: !p.edges?.length, faces: this.type !== 'shell' && !p.faces?.length, point: !p.point, place: !p.point,
         face: !p.face || !Number(p.distance),
-        bodies: !p.bodies?.length, features: !p.features?.length, combine: !p.target || !p.tools?.length,
+        bodies: !p.bodies?.length && this.type !== 'split', plane: !p.normal, features: !p.features?.length, combine: !p.target || !p.tools?.length,
       }[this.pick];
       const error = res.draftError || res.errors?.[this.featureId] || '';
       this.errorBox.textContent = nothingPicked ? '' : error;
@@ -565,6 +626,12 @@ export class FeatureDialog {
     }
     this.selInfo = el('div', { class: 'sel-info' });
     body.append(this.selInfo);
+    if (this.type === 'split' && p.normal) {
+      body.append(el('button', {
+        class: 'btn small', title: 'Start the cut from a different plane or face',
+        onclick: () => { Object.assign(p, { normal: null, point: null, face: null, offset: 0 }); this.showPlanes(); this.render(); this.update(); },
+      }, 'Pick another plane'));
+    }
     if (this.type === 'stl') this.selInfo.classList.add('no-clear');
     if (this.pick === 'features') body.append(this.featureList());
     if (this.pick === 'combine') {
@@ -628,7 +695,10 @@ export class FeatureDialog {
       case 'point': return p.point ? 'Hole position set' : 'Click a face to place the hole';
       case 'face': return p.face ? 'Face selected (click another to change)' : 'Click a flat face';
       case 'place': return p.point ? 'Position set (click again to move)' : 'Click a plane or flat face';
-      case 'bodies': return `Bodies: ${p.bodies.length} selected`;
+      case 'bodies':
+        if (this.type === 'split' && !p.bodies.length) return 'Bodies: every one the plane crosses';
+        return `Bodies: ${p.bodies.length} selected`;
+      case 'plane': return 'Click an origin plane or a flat face';
       case 'combine': {
         const name = this.app.bodies.find((b) => b.id === p.target)?.name;
         return `Target: ${name || 'none'} · Tools: ${p.tools.length}`;
@@ -703,6 +773,13 @@ export class FeatureDialog {
         items.push({ kind: 'body', body: this.hover.body, color: 0x6fb6ff });
       }
     }
+    if (this.pick === 'plane' && this.hover?.kind === 'face' && this.hover.flat) {
+      items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
+    }
+    if (this.type === 'split') {
+      const sq = this.splitSquare();
+      if (sq) items.push({ kind: 'quad', corners: sq.corners, color: 0xff8a00 });
+    }
     if (this.placesPoint()) {
       if (p.point) items.push({ kind: 'points', points: [p.point], color: 0x0a6cff, size: 10 });
       if (this.hover?.point) items.push({ kind: 'points', points: [this.hover.point], color: 0x6fb6ff, size: 8 });
@@ -724,6 +801,17 @@ export class FeatureDialog {
       }
       const d = Number(p.distance) || 0;
       this.gizmo?.setCenter(p.face.c.map((v, i) => v + p.normal[i] * d));
+      return;
+    }
+    if (this.type === 'split') {
+      // One arrow along the plane's normal, in the middle of the cut.
+      const key = p.normal ? p.normal.join() : null;
+      if (key !== this.gizmoKey) {
+        this.gizmo?.dispose();
+        this.gizmo = key ? new Gizmo(this.vp, { axes: { n: p.normal }, rings: false }) : null;
+        this.gizmoKey = key;
+      }
+      this.gizmo?.setCenter(this.splitSquare()?.center ?? null);
       return;
     }
     if (!this.gizmo) return;
@@ -749,6 +837,7 @@ export class FeatureDialog {
     this.dragStart = {
       dx: Number(p.dx) || 0, dy: Number(p.dy) || 0, dz: Number(p.dz) || 0,
       angle: p.axis === h.axis ? Number(p.angle) || 0 : 0, distance: Number(p.distance) || 0,
+      offset: Number(p.offset) || 0,
     };
     this.dragHandle = h;
     if (h.kind === 'rotate' && this.type === 'move') p.axis = h.axis;
@@ -778,6 +867,8 @@ export class FeatureDialog {
     if (this.type === 'pressPull') {
       p.distance = clean(st.distance + snap(amt, ev.shiftKey ? 0.1 : 1));
       this.showOutline();
+    } else if (this.type === 'split') {
+      p.offset = clean(st.offset + snap(amt, ev.shiftKey ? 0.1 : 1));
     } else if (h.kind === 'move') {
       const key = `d${h.axis}`;
       p[key] = clean(st[key] + snap(amt, ev.shiftKey ? 0.1 : 1));
@@ -887,6 +978,7 @@ export class FeatureDialog {
       point: { faces: true },
       face: { faces: true },
       place: { faces: true, planes: true },
+      plane: { faces: true, planes: true },
       bodies: { faces: true },
       combine: { faces: true },
       features: {},
@@ -907,7 +999,7 @@ export class FeatureDialog {
     }
     this.hover = this.vp.pick(ev, this.pickWhat());
     if (this.pick === 'face' && !this.hover?.flat) this.hover = null;
-    if (this.pick === 'place') {
+    if (this.pick === 'place' || this.pick === 'plane') {
       // Light up the origin plane a click would use.
       const name = this.hover?.kind === 'plane' ? this.hover.name : null;
       if (name !== this.hoverPlane) { this.hoverPlane = name; this.vp.showOriginPlanes(true, name); }
@@ -930,6 +1022,10 @@ export class FeatureDialog {
     const p = this.params;
     if (this.pick === 'combine') {
       if (hit.kind === 'face') this.combinePick(hit.body);
+      return;
+    }
+    if (this.pick === 'plane') {
+      if (this.setSplitPlane(hit)) { this.render(); this.update(); }
       return;
     }
     if (this.pick === 'bodies') {

@@ -57,6 +57,7 @@ const SOLID_TOOLS = [
     ['move', 'Move/Copy (M)', () => app.startFeature('move')],
     ['scale', 'Scale', () => app.startFeature('scale')],
     ['combine', 'Combine', () => app.startFeature('combine')],
+    ['split', 'Split Body', () => app.startFeature('split')],
     ['remove', 'Remove (Delete)', () => app.startFeature('remove')],
   ]],
   ['INSPECT', [

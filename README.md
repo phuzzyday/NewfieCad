@@ -101,6 +101,9 @@ double-click two bodies and press M to move them, or select a flat face and clic
    Join merges the tools into the target, Cut removes their shape from it, and Intersect keeps only the overlap.
    The tools are used up unless you tick **Keep tool bodies**. Bodies selected beforehand: the first is the target, the rest are tools.
    **Scale** (MODIFY) resizes bodies by one factor in every direction, about their centre or the origin.
+   **Split Body** cuts bodies in two: click an origin plane or a flat face to start the cut there, then drag the arrow
+   (or type an offset) to move the cut to any level. The orange square shows where it goes. It splits every body it
+   crosses, or only the bodies you click. **Keep** chooses both halves (as two bodies), the arrow side, or the other side.
    **Remove** deletes bodies: select whole bodies and press **Delete**, right-click a body in the tree and choose Remove,
    or use the Remove button. It adds a step to the timeline; delete or edit that step to bring the body back.
 8. **Pattern ▾** (Rectangular or Circular) and **Mirror** repeat either whole **bodies** (click them) or earlier **features** (tick them in the panel).

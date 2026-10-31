@@ -297,6 +297,16 @@ export class Viewport {
         const obj = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: it.color, transparent: true, opacity: 0.3, depthTest: false, side: THREE.DoubleSide }));
         obj.renderOrder = 9;
         this.overlay.add(obj);
+      } else if (it.kind === 'quad') {
+        // A see-through square (Split Body's cut plane) with its border.
+        const [a, b, c, d] = it.corners.map((p) => new THREE.Vector3(...p));
+        const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([a, b, c, a, c, d]), new THREE.MeshBasicMaterial({
+          color: it.color, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide,
+        }));
+        const border = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([a, b, c, d]), new THREE.LineBasicMaterial({ color: it.color }));
+        fill.renderOrder = 8;
+        border.renderOrder = 8;
+        this.overlay.add(fill, border);
       } else if (it.kind === 'points') {
         const obj = new THREE.Points(new THREE.BufferGeometry().setFromPoints(it.points.map((p) => new THREE.Vector3(...p))),
           new THREE.PointsMaterial({ color: it.color, size: it.size || 8, sizeAttenuation: false, depthTest: false }));

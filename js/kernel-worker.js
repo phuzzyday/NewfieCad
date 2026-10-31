@@ -541,6 +541,52 @@ function scaleBodies(state, f) {
   state.bodies = state.bodies.map((b) => (sel.has(b.id) ? { ...b, shape: b.shape.clone().scale(k, c) } : b));
 }
 
+// Split Body: cut bodies in two with a plane (a picked origin plane or face, moved along
+// its normal by the offset). With no bodies picked, every body the plane crosses is split.
+// The half on the arrow side becomes a new body, unless only one side is kept.
+function split(state, f) {
+  const p = f.params;
+  const n = p.normal;
+  if (!n) throw new Error('Click an origin plane or a flat face');
+  const o = add(placedPoint(state, p), mul(n, Number(p.offset) || 0));
+  // Signed distances of a body's bounding box corners from the plane.
+  const sides = (b) => {
+    const [min, max] = b.shape.boundingBox.bounds;
+    const d = [];
+    for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) d.push(dot(sub([x, y, z], o), n));
+    return [Math.min(...d), Math.max(...d)];
+  };
+  const crosses = (b) => { const [lo, hi] = sides(b); return lo < -1e-6 && hi > 1e-6; };
+  let targets;
+  if (p.bodies?.length) {
+    targets = selectedBodies(state, p.bodies);
+    const miss = targets.find((b) => !crosses(b));
+    if (miss) throw new Error(`The plane doesn't cut ${miss.name}`);
+  } else {
+    targets = state.bodies.filter(crosses);
+    if (!targets.length) throw new Error("The plane doesn't pass through any body");
+  }
+  const x0 = Math.abs(n[0]) < 0.9 ? cross(n, [1, 0, 0]) : cross(n, [0, 1, 0]);
+  const xDir = mul(x0, 1 / len(x0)), yDir = cross(n, xDir);
+  const ids = new Set(targets.map((b) => b.id));
+  const halves = [];
+  state.bodies = state.bodies.flatMap((b) => {
+    if (!ids.has(b.id)) return [b];
+    // A block on the arrow side of the plane, centred on the body and big enough to cover it.
+    const [min, max] = b.shape.boundingBox.bounds;
+    const c = sub(mul(add(min, max), 0.5), o);
+    const s = 2 * len(sub(max, min)) + 10;
+    const block = R.drawRectangle(s, s).translate(dot(c, xDir), dot(c, yDir))
+      .sketchOnPlane(new R.Plane(o, xDir, n)).extrude(sides(b)[1] + 10);
+    const front = b.shape.intersect(block), back = b.shape.cut(block);
+    if (p.keep === 'front') return [{ ...b, shape: front }];
+    if (p.keep === 'back') return [{ ...b, shape: back }];
+    halves.push([`${f.id}#${b.id}`, front]);
+    return [{ ...b, shape: back }];
+  });
+  for (const [id, shape] of halves) addBody(state, id, shape);
+}
+
 // Remove: drop bodies from the model from this step on.
 function removeBodies(state, f) {
   const ids = new Set(selectedBodies(state, f.params.bodies).map((b) => b.id));
@@ -555,6 +601,7 @@ function runFeature(state, f) {
     case 'scale': scaleBodies(state, f); break;
     case 'combine': combine(state, f); break;
     case 'remove': removeBodies(state, f); break;
+    case 'split': split(state, f); break;
     case 'rectPattern': case 'circPattern': case 'mirror': pattern(state, f); break;
     case 'fillet': edgeFeature(state, f, 'fillet', Number(p.radius)); break;
     case 'chamfer': edgeFeature(state, f, 'chamfer', Number(p.distance)); break;
