@@ -43,6 +43,21 @@ export function primitiveOutline(type, p) {
   return null;
 }
 
+// Move: the selected bodies' own edges, carried along by the move as it stands now
+// (turned about the pivot, then shifted, as the kernel does it).
+export function moveOutline(vp, p) {
+  const bodies = vp.bodyData.filter((b) => p.bodies?.includes(b.id) && b.lines);
+  if (!bodies.length) return null;
+  const positions = new Float32Array(bodies.reduce((n, b) => n + b.lines.length, 0));
+  bodies.reduce((at, b) => { positions.set(b.lines, at); return at + b.lines.length; }, 0);
+  const c = p.pivot || [0, 0, 0];
+  const axis = V({ x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[p.axis] || [0, 0, 1]);
+  const matrix = new THREE.Matrix4().makeTranslation(...[p.dx, p.dy, p.dz].map((v, i) => (Number(v) || 0) + c[i]))
+    .multiply(new THREE.Matrix4().makeRotationAxis(axis, THREE.MathUtils.degToRad(Number(p.angle) || 0)))
+    .multiply(new THREE.Matrix4().makeTranslation(-c[0], -c[1], -c[2]));
+  return { positions, matrix };
+}
+
 // Press Pull: the face's outline where it starts and where it ends, joined at the corners.
 export function pressPullOutline(vp, p) {
   if (!p.face || !p.normal) return null;

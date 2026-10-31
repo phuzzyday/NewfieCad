@@ -307,14 +307,16 @@ export class Viewport {
     this.redraw();
   }
 
-  // Instant drag outline: { geometry, matrix } drawn as its edges, { lines } as segments, or null.
+  // Instant drag outline: { geometry, matrix } drawn as its edges, { lines } as segments,
+  // { positions, matrix } as ready-made segments, or null.
   setOutline(o) {
     for (const c of this.outline.children) c.geometry.dispose();
     this.outline.clear();
     if (o) {
-      const geo = o.lines
-        ? new THREE.BufferGeometry().setFromPoints(o.lines.map((p) => new THREE.Vector3(...p)))
-        : new THREE.EdgesGeometry(o.geometry, 25);
+      let geo;
+      if (o.positions) geo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(o.positions, 3));
+      else if (o.lines) geo = new THREE.BufferGeometry().setFromPoints(o.lines.map((p) => new THREE.Vector3(...p)));
+      else geo = new THREE.EdgesGeometry(o.geometry, 25);
       o.geometry?.dispose();
       const obj = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: COLORS.select, depthTest: false, transparent: true, opacity: 0.9 }));
       if (o.matrix) obj.applyMatrix4(o.matrix);

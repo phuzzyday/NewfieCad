@@ -84,7 +84,8 @@ double-click two bodies and press M to move them, or select a flat face and clic
    Draw it like in Fusion: click an origin plane (snaps to whole millimetres) or a flat face, move the mouse and click to set the size,
    then move and click to set the height. For a Box the first click is a corner; for the round shapes it is the centre.
    While moving, type a number to enter it exactly (Tab between Width and Depth, Enter applies). Sizes snap to 1 mm; Shift gives 0.1 mm.
-   Afterwards, drag the arrows on the shape or change the numbers in the panel.
+   Afterwards, drag the arrows on the shape or change the numbers in the panel. To move it, drag the shape itself
+   (or its blue base point): it slides along the plane or face it sits on and keeps its size.
    While you drag, a blue outline follows the mouse at once; the shaded result catches up a moment later.
    Where the origin planes overlap on screen, a click goes to the one you are looking at most squarely (the lit-up one).
    Box, Cylinder and Cone stand on the plane and grow along its normal. A Cut goes into the part, and **Flip direction** reverses it.
@@ -95,6 +96,7 @@ double-click two bodies and press M to move them, or select a flat face and clic
 7. **Move/Copy** (M): click bodies, then drag the arrows to move along X/Y/Z or the rings to rotate.
    Drags snap to 1 mm and 5°; hold Shift for 0.1 mm and 1°. You can also type the values.
    The rotation turns about the centre of the selected bodies. Tick **Keep original** to make a copy.
+   While you drag, a blue outline of the bodies follows the mouse at once.
    **Combine** (MODIFY) joins, cuts or intersects bodies: click the target body (blue), then the tool bodies (orange).
    Join merges the tools into the target, Cut removes their shape from it, and Intersect keeps only the overlap.
    The tools are used up unless you tick **Keep tool bodies**. Bodies selected beforehand: the first is the target, the rest are tools.

@@ -7,7 +7,7 @@ import { Gizmo } from './gizmo.js';
 import {
   STAGES, primFrame, dragSize, dragHeight, typedSize, primArrows, applyPrimArrow, extrudeArrow, applyExtrudeArrow,
 } from './shape-drag.js';
-import { primitiveOutline, pressPullOutline, extrudeOutline } from './outline.js';
+import { primitiveOutline, pressPullOutline, extrudeOutline, moveOutline } from './outline.js';
 
 const OPS = [['join', 'Join'], ['cut', 'Cut'], ['new', 'New Body']];
 const PRIM_OPS = [['new', 'New Body'], ['join', 'Join'], ['cut', 'Cut']];
@@ -208,7 +208,7 @@ const STAGE_HINT = {
   height: (t) => (t === 'torus'
     ? 'Move to set the tube thickness, then click. Or type it and press Enter.'
     : 'Move up or down to set the height, then click. Or type it and press Enter.'),
-  adjust: () => 'Drag the arrows or change the numbers. OK, or click empty space, to finish.',
+  adjust: () => 'Drag the shape to move it, drag the arrows to resize, or change the numbers. OK, or click empty space, to finish.',
 };
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -285,6 +285,7 @@ export class FeatureDialog {
     window.removeEventListener('keydown', this.keyHandler);
     this.hideDim();
     this.vp.setOutline(null);
+    this.vp.renderer.domElement.style.cursor = '';
   }
 
   // While dragging, an outline drawn straight from the numbers follows the mouse at once.
@@ -293,6 +294,7 @@ export class FeatureDialog {
     if (this.pick === 'place') o = primitiveOutline(this.type, this.params);
     else if (this.type === 'pressPull') o = pressPullOutline(this.vp, this.params);
     else if (this.type === 'extrude') o = extrudeOutline(this.app, this.params);
+    else if (this.type === 'move') o = moveOutline(this.vp, this.params);
     this.vp.setOutline(o);
   }
 
@@ -415,6 +417,50 @@ export class FeatureDialog {
       this.arrowKey = key;
     }
     list.forEach((a, i) => this.arrows[i].gizmo.setCenter(a.pos));
+  }
+
+  // ---------- sliding a placed primitive ----------
+
+  // Once a primitive is drawn (or when editing one), it can be dragged along its plane.
+  canSlide() {
+    const p = this.params;
+    return this.pick === 'place' && !this.stage && p.point && p.normal && p.xDir;
+  }
+
+  // The point grabbed when the mouse is over the shape itself or its base point, else null.
+  overShape(ev) {
+    if (!this.canSlide()) return null;
+    const rc = this.vp.ray(ev);
+    if (rc.ray.distanceToPoint(new THREE.Vector3(...this.params.point)) < this.vp.unitsPerPixel() * 10) return this.params.point;
+    const o = primitiveOutline(this.type, this.params);
+    if (!o) return null;
+    const mesh = new THREE.Mesh(o.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    mesh.applyMatrix4(o.matrix);
+    mesh.updateMatrixWorld();
+    const hit = rc.intersectObject(mesh)[0];
+    o.geometry.dispose();
+    mesh.material.dispose();
+    return hit ? hit.point.toArray() : null;
+  }
+
+  slideFrame(origin) {
+    const { x, y } = primFrame(this.params);
+    return { origin, xDir: x, yDir: y, normal: this.params.normal };
+  }
+
+  // The sizes stay as they are; only the base point moves, in 1 mm steps (Shift: 0.1 mm).
+  // The drag runs in a plane through the grabbed spot, so that spot stays under the mouse.
+  slideTo(ev) {
+    const { start, grab, uv0 } = this.slide;
+    const fr = this.slideFrame(start);
+    const uv = this.vp.planeHit(ev, { ...fr, origin: grab });
+    if (!uv) return;
+    const step = ev.shiftKey ? 0.1 : 1;
+    const du = Math.round((uv[0] - uv0[0]) / step) * step, dv = Math.round((uv[1] - uv0[1]) / step) * step;
+    this.params.point = start.map((v, i) => Math.round((v + fr.xDir[i] * du + fr.yDir[i] * dv) * 1000) / 1000);
+    this.render();
+    this.showOutline();
+    this.update(true, true);
   }
 
   // Highlight an arrow under the mouse; true if there is one.
@@ -691,6 +737,12 @@ export class FeatureDialog {
       const ah = a.gizmo.hit(ev);
       if (ah && a.gizmo.begin(ev, ah)) { this.arrowDrag = { a, start: structuredClone(this.params) }; return true; }
     }
+    const grab = this.overShape(ev);
+    if (grab) {
+      const start = this.params.point.slice();
+      const uv0 = this.vp.planeHit(ev, this.slideFrame(grab));
+      if (uv0) { this.slide = { start, grab, uv0 }; return true; }
+    }
     const h = this.gizmo?.hit(ev);
     if (!h || !this.gizmo.begin(ev, h)) return false;
     const p = this.params;
@@ -705,6 +757,7 @@ export class FeatureDialog {
 
   // Moves snap to 1 mm and turns to 5 degrees; hold Shift for 0.1 mm / 1 degree.
   onDrag(ev) {
+    if (this.slide) { this.slideTo(ev); return; }
     if (this.arrowDrag) {
       const { a, start } = this.arrowDrag;
       const amt = a.gizmo.amount(ev);
@@ -731,6 +784,7 @@ export class FeatureDialog {
     } else {
       p.angle = clean((st.angle + snap(amt, ev.shiftKey ? 1 : 5)) % 360);
     }
+    if (this.type === 'move') this.showOutline();
     this.render();
     this.update(true, true);
   }
@@ -739,6 +793,7 @@ export class FeatureDialog {
     this.vp.setOutline(null);
     this.arrowDrag?.a.gizmo.end();
     this.arrowDrag = null;
+    this.slide = null;
     this.gizmo?.end();
     this.update();
   }
@@ -841,7 +896,9 @@ export class FeatureDialog {
 
   onMove(ev) {
     if (this.dragging()) { this.dragStage(ev); return; }
-    if (this.hoverArrows(ev)) { this.hover = null; this.refreshPicks(); return; }
+    const arrow = this.hoverArrows(ev);
+    this.vp.renderer.domElement.style.cursor = !arrow && this.overShape(ev) ? 'move' : '';
+    if (arrow) { this.hover = null; this.refreshPicks(); return; }
     if (this.pick === 'regions' || this.pick === 'none') return;
     if (this.gizmo) {
       const h = this.gizmo.hit(ev);
