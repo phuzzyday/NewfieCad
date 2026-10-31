@@ -66,9 +66,12 @@ export function primArrows(type, p) {
   const at = (...terms) => terms.reduce((acc, [dir, s]) => add(acc, mul(dir, s)), c);
   const h = Number(p.height) || 0;
   switch (type) {
+    // All four walls ("width-" is the side opposite "width"); not the bottom, which sits on its plane.
     case 'box': return [
       { key: 'width', pos: at([x, p.width / 2], [n, h / 2]), dir: x },
+      { key: 'width-', pos: at([x, -p.width / 2], [n, h / 2]), dir: neg(x) },
       { key: 'depth', pos: at([y, p.depth / 2], [n, h / 2]), dir: y },
+      { key: 'depth-', pos: at([y, -p.depth / 2], [n, h / 2]), dir: neg(y) },
       { key: 'height', pos: at([n, h]), dir: n },
     ];
     case 'cylinder': return [
@@ -92,12 +95,13 @@ export function primArrows(type, p) {
 // Dragging arrow `key` by `amt` mm, from the params at the start of the drag.
 export function applyPrimArrow(type, p, start, key, amt, step) {
   const s = (v) => clean(Math.round(v / step) * step);
-  if (type === 'box' && (key === 'width' || key === 'depth')) {
+  if (type === 'box' && /^(width|depth)-?$/.test(key)) {
     // Move one side; the opposite side stays put.
-    const size = Math.max(step, s(start[key] + amt));
+    const dim = key.replace('-', ''), side = key.endsWith('-') ? -1 : 1;
+    const size = Math.max(step, s(start[dim] + amt));
     const { x, y } = primFrame(start);
-    p[key] = size;
-    p.point = add(start.point, mul(key === 'width' ? x : y, (size - start[key]) / 2)).map(clean);
+    p[dim] = size;
+    p.point = add(start.point, mul(dim === 'width' ? x : y, (side * (size - start[dim])) / 2)).map(clean);
   } else if (key === 'height') {
     p.height = Math.max(step, s(start.height + amt));
   } else if (key === 'topDiameter') {
