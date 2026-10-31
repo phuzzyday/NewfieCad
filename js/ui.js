@@ -40,6 +40,10 @@ export function contextMenu(x, y, items) {
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.append(menu);
+  // Keep it on screen: near the bottom or right edge it opens up or to the left.
+  const r = menu.getBoundingClientRect();
+  if (r.bottom > window.innerHeight - 4) menu.style.top = `${Math.max(4, y - r.height)}px`;
+  if (r.right > window.innerWidth - 4) menu.style.left = `${Math.max(4, x - r.width)}px`;
   const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); window.removeEventListener('pointerdown', close, true); } };
   setTimeout(() => window.addEventListener('pointerdown', close, true));
 }

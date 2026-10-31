@@ -719,7 +719,14 @@ export class FeatureDialog {
         }
       } else if (f.type === 'select') {
         input = el('select', {}, ...f.options.map(([v, l]) => el('option', { value: v, selected: v === p[f.key] }, l)));
-        input.addEventListener('change', () => { p[f.key] = input.value; this.render(); this.update(); });
+        input.addEventListener('change', () => {
+          // A primitive's Cut grows the other way, so flip it too: switching to or from Cut
+          // keeps the shape where it was drawn.
+          if (this.pick === 'place' && f.key === 'op' && (p.op === 'cut') !== (input.value === 'cut')) p.flip = !p.flip;
+          p[f.key] = input.value;
+          this.render();
+          this.update();
+        });
       } else if (f.type === 'checkbox') {
         input = el('input', { type: 'checkbox', checked: !!p[f.key] });
         input.addEventListener('change', () => { p[f.key] = input.checked; this.render(); this.update(); });

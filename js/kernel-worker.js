@@ -468,9 +468,10 @@ function primitiveTool(state, f) {
   const x = p.xDir;
   const flip = (p.flip ? -1 : 1) * (p.op === 'cut' ? -1 : 1);
   const dir = mul(p.normal, flip);
-  // A cut starts slightly outside the surface: cutting with a face that lies
-  // exactly on the part's face is unreliable in the kernel.
-  const lead = p.op === 'cut' && (f.type === 'box' || f.type === 'cylinder' || f.type === 'cone') ? 0.05 : 0;
+  // A cut into the face it sits on starts slightly outside the surface: cutting with a
+  // face that lies exactly on the part's face is unreliable in the kernel. A cut pointing
+  // away from the face gets none, so it doesn't nick that face.
+  const lead = p.op === 'cut' && flip < 0 && (f.type === 'box' || f.type === 'cylinder' || f.type === 'cone') ? 0.05 : 0;
   const pt = add(placed, mul(dir, -lead));
   const base = new R.Plane(pt, x, dir);
   // Plane through the axis, for revolved profiles: local x = xDir, local y = dir.
