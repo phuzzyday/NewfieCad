@@ -80,6 +80,11 @@ input, select { font: inherit; color: inherit; }
 .tree-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree-empty { padding: 2px 4px 2px 38px; }
 .tree-node.body-node { cursor: pointer; }
+#browser details.user-folder { margin-left: 10px; }
+#browser details.user-folder > summary { font-weight: 500; }
+#browser details.user-folder > .tree-node { padding-left: 24px; }
+#browser .drop { background: var(--accent-soft); outline: 1px dashed var(--accent); }
+.tree-rename { font: inherit; padding: 0 3px; border: 1px solid var(--accent); border-radius: 3px; min-width: 0; flex: 1; }
 .tree-node.selected { background: var(--accent-soft); }
 .tree-node.selected .tree-label { color: var(--accent); font-weight: 600; }
 .eye { background: none; border: 0; padding: 0; cursor: pointer; color: var(--muted); }
@@ -111,6 +116,18 @@ input, select { font: inherit; color: inherit; }
 .snap-marker.mid { border: none; background: #ff8a00; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .snap-marker.center { border-radius: 50%; background: none; }
 .snap-marker.edge, .snap-marker.axis { width: 9px; height: 9px; margin: -5px 0 0 -5px; border-radius: 50%; border: none; background: #ff8a00; }
+
+.screen-handles { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.screen-handle { position: absolute; pointer-events: auto; user-select: none; }
+.screen-handle.count { display: flex; align-items: center; transform: translate(-50%, 16px); background: #fff; border: 1px solid #ff8a00;
+  border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.2); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.screen-handle.count button { border: none; background: none; color: #ff8a00; cursor: pointer; padding: 2px 5px; font-size: 9px; }
+.screen-handle.count button:hover { color: #c55f00; }
+.screen-handle.count .count-value { cursor: ew-resize; padding: 2px 2px; min-width: 22px; text-align: center; }
+.screen-handle.dot { width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #ff8a00; border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #ff8a00, 0 1px 4px rgba(0,0,0,.3); cursor: grab; box-sizing: border-box; }
+.screen-handle.dot.axis { background: #2f6fd6; box-shadow: 0 0 0 1px #2f6fd6, 0 1px 4px rgba(0,0,0,.3); }
+.screen-handle.dot:hover { transform: scale(1.25); }
 
 #dim-box { position: absolute; display: flex; gap: 6px; background: #fff; border: 1px solid var(--accent); border-radius: 5px; padding: 4px 6px; box-shadow: 0 2px 8px rgba(0,0,0,.15); pointer-events: auto; }
 #dim-box[hidden] { display: none; }

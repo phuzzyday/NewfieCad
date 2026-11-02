@@ -11,7 +11,7 @@ const LIB_CACHE = 'newfiecad-lib-1';
 
 const APP_FILES = [
   './', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'css/app.css',
-  ...['features', 'geom2d', 'gizmo', 'icons', 'io', 'kernel-worker', 'kernel', 'main', 'outline', 'profiles', 'select',
+  ...['features', 'geom2d', 'gizmo', 'icons', 'io', 'kernel-worker', 'kernel', 'main', 'outline', 'profiles', 'screen-handles', 'select',
     'shape-drag', 'simplify-worker', 'simplify', 'sketch-labels', 'sketch-model', 'sketch-tools', 'sketch', 'snap', 'solver', 'stl',
     'threads', 'timeline', 'tree', 'ui', 'viewcube', 'viewport'].map((n) => `js/${n}.js`),
 ];

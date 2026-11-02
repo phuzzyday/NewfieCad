@@ -20,6 +20,7 @@ const TOOLS = {
   fillet: { label: 'Fillet', hint: 'Click corners where two lines meet to round them. Set the radius in the panel.' },
   trim: { label: 'Trim', hint: 'Click the part of a curve to cut away, up to where other curves cross it.' },
   project: { label: 'Project', hint: 'Click body edges to bring them into the sketch as fixed geometry.' },
+  paste: { label: 'Paste', hint: 'Click to place the pasted shapes (they snap to points and the grid). Esc cancels.' },
   select: { label: 'Select', hint: 'Click to select (Shift or Ctrl adds), drag to move. Then pick a constraint, or press Delete.' },
   dimension: { label: 'Dimension', hint: 'Click a line, circle or arc, or two points, or two lines (angle). Type the value and press Enter.' },
 };
@@ -30,6 +31,9 @@ const PICK_TOOLS = new Set(['select', 'dimension', 'fillet', 'trim', 'project'])
 const COLOR = { free: 0x1f6fd6, fixed: 0x1d2329, select: 0x0a6cff, hover: 0x6fb6ff, construction: 0xe08a1e };
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
+
+// Copied sketch curves, kept between sketches so they can be pasted into another one.
+let clipboard = null;
 const rp = (p) => [r3(p[0]), r3(p[1])];
 const fmt = (v) => String(Math.round(v * 100) / 100);
 
@@ -306,9 +310,47 @@ export class SketchMode {
     this.changed({ check: false });
   }
 
+  // ---------- copy and paste ----------
+
+  copySelected() {
+    const ids = this.selection().curves.map((c) => c.id);
+    if (!ids.length) { this.app.setStatus('Select the lines, circles or arcs to copy.', 'warn'); return; }
+    clipboard = M.copyCurves(this.params, ids);
+    this.app.setStatus(`Copied ${ids.length} curve${ids.length === 1 ? '' : 's'}. Press Ctrl+V to paste, here or in another sketch.`);
+  }
+
+  startPaste() {
+    if (!clipboard) { this.app.setStatus('Nothing copied yet: select curves and press Ctrl+C.', 'warn'); return; }
+    this.setTool('paste');
+    if (this.lastEv) { this.cursor = this.snap(this.lastEv); this.refreshOverlay(); }
+  }
+
+  // The copied shapes as line segments with their base point at `at`, for the preview.
+  pasteSegments(at) {
+    const tmp = { points: [], curves: [], constraints: [], next: 1 };
+    M.pasteCurves(tmp, clipboard, at);
+    return M.toEntities(tmp, true).flatMap((e) => this.app.polylineSegments(e));
+  }
+
+  // A click drops the copy; onto a point, the copy's base point joins it.
+  placePaste(s) {
+    let made = null;
+    const ok = this.edit(() => {
+      const onto = s.id || null;
+      made = M.pasteCurves(this.params, clipboard, s.uv, onto);
+      if (!onto && s.origin) M.addConstraint(this.params, 'fix', [made.base]);
+      if (!onto && s.onCurve) M.addConstraint(this.params, 'onCurve', [made.base, s.onCurve]);
+    });
+    if (!ok) return;
+    this.selected = new Set(made.curveIds);
+    this.setTool('select');
+    this.app.setStatus('Pasted. Drag it to move it, or press Delete to remove it.');
+  }
+
   place(s) {
     const sk = this.params;
     const pts = this.pts;
+    if (this.tool === 'paste') { this.placePaste(s); return; }
     switch (this.tool) {
       case 'line': {
         const prev = pts[pts.length - 1];
@@ -589,9 +631,16 @@ export class SketchMode {
   onKey(e) {
     if (e.target.closest?.('input, select, textarea')) return;
     if (e.key === 'Escape') {
-      if (this.pts.length || this.dimPick) this.endChain(); else this.setTool('select');
+      if (this.tool === 'paste') this.setTool('select');
+      else if (this.pts.length || this.dimPick) this.endChain(); else this.setTool('select');
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected.size) {
       this.deleteSelected();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      this.copySelected();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      this.startPaste();
     } else if ((e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
       // Ctrl+Z undoes; Ctrl+Y or Ctrl+Shift+Z redoes.
       e.preventDefault();
@@ -612,6 +661,7 @@ export class SketchMode {
   // ---------- display ----------
 
   rubberBand() {
+    if (this.tool === 'paste') return this.cursor && clipboard ? { segs: this.pasteSegments(this.cursor.uv) } : null;
     const c = this.cursor?.uv, pts = this.pts.map((p) => p.uv);
     if (!c || !pts.length) return null;
     const a = pts[0];

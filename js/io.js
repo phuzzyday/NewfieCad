@@ -43,7 +43,7 @@ export async function storeSet(key, value) {
   });
 }
 
-const TYPES = { '.stl': ['STL mesh', 'model/stl'], '.3mf': ['3MF model', 'model/3mf'] };
+const TYPES = { '.stl': ['STL mesh', 'model/stl'], '.3mf': ['3MF model', 'model/3mf'], '.step': ['STEP model', 'model/step'] };
 
 // Ask for a file name, then save. Chrome and Edge show a real Save As window. It has to
 // open straight after the click, so `makeData` runs once a name is chosen. Other browsers

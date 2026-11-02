@@ -9,7 +9,7 @@ const SIZE_PX = 110;
 
 // `axes` maps handle names to directions; Press Pull uses a single arrow along a face normal.
 export class Gizmo {
-  constructor(vp, { axes = AXES, rings = true, size = SIZE_PX } = {}) {
+  constructor(vp, { axes = AXES, rings = true, size = SIZE_PX, color = null } = {}) {
     this.vp = vp;
     this.axes = axes;
     this.group = new THREE.Group();
@@ -20,7 +20,7 @@ export class Gizmo {
     const up = new THREE.Vector3(0, 1, 0);
 
     for (const [axis, dir] of Object.entries(axes)) {
-      const mat = new THREE.MeshBasicMaterial({ color: COLORS[axis] ?? 0x0a6cff, depthTest: false, transparent: true, opacity: 0.85 });
+      const mat = new THREE.MeshBasicMaterial({ color: color ?? COLORS[axis] ?? 0x0a6cff, depthTest: false, transparent: true, opacity: 0.85 });
       const q = new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(...dir));
 
       // Arrow: shaft + cone, pointing along +axis.

@@ -36,7 +36,13 @@ function facePlane(hit) {
   return { plane, offset: Math.round(offset * 1000) / 1000 };
 }
 
-const newDoc = () => ({ format: 'newfiecad', version: 1, name: 'Untitled', features: [], hiddenBodies: [], counters: {} });
+// bodyNames: names given to bodies by id. folders: [{ id, name, open }]; bodyFolder: body id ->
+// folder id ('' for the top level). Bodies made from a body in a folder (copies, pattern and
+// split results) show in the same folder until they are moved.
+const newDoc = () => ({
+  format: 'newfiecad', version: 1, name: 'Untitled', features: [], hiddenBodies: [], counters: {},
+  bodyNames: {}, folders: [], bodyFolder: {},
+});
 
 const SOLID_TOOLS = [
   ['CREATE', [
@@ -51,6 +57,7 @@ const SOLID_TOOLS = [
     ['pattern', 'Pattern ▾', () => app.toggleRow('pattern')],
     ['mirror', 'Mirror', () => app.startFeature('mirror')],
     ['stl', 'Insert STL', () => app.insertSTL()],
+    ['step', 'Insert STEP', () => app.insertSTEP()],
   ]],
   ['MODIFY', [
     ['pressPull', 'Press Pull (Q)', () => app.startFeature('pressPull')],
@@ -199,7 +206,7 @@ class App {
   }
 
   applyResult(res) {
-    this.bodies = res.bodies;
+    this.bodies = this.named(res.bodies);
     this.errors = res.errors;
     this.warnings = res.warnings;
     this.renderSide();
@@ -392,7 +399,7 @@ class App {
   commitFeature(feature, index) {
     this.pushUndo();
     if (index == null) {
-      feature.name = feature.type === 'stl' ? feature.params.name.replace(/\.stl$/i, '') : this.nextName(feature.type);
+      feature.name = feature.type === 'stl' || feature.type === 'step' ? feature.params.name.replace(/\.(stl|ste?p)$/i, '') : this.nextName(feature.type);
       // The sketches a solid was made from are hidden, as in Fusion.
       const p = feature.params;
       const used = feature.type === 'extrude' || feature.type === 'revolve' ? [p.sketch]
@@ -455,6 +462,27 @@ class App {
   }
 
   // Delete key: remove the selected bodies.
+  // Ctrl+C keeps the bodies of whatever is selected; Ctrl+V opens Move/Copy on copies of
+  // them, sitting on the originals, ready to drag into place.
+  copyBodies() {
+    const ids = [...new Set(this.selector.items.map((it) => it.body))];
+    if (!ids.length) { this.setStatus('Select a body (or a face or edge of it) to copy.', 'warn'); return; }
+    this.clipboard = ids;
+    this.setStatus(`Copied ${ids.length === 1 ? 'a body' : `${ids.length} bodies`}. Press Ctrl+V to paste.`);
+  }
+
+  pasteBodies() {
+    const ids = (this.clipboard || []).filter((id) => this.bodies.some((b) => b.id === id));
+    if (!ids.length) { this.setStatus(this.clipboard ? 'The copied bodies are gone.' : 'Nothing copied yet: select a body and press Ctrl+C.', 'warn'); return; }
+    this.selector.set(ids.map((body) => ({ kind: 'body', body })));
+    this.startFeature('move');
+    if (!(this.active instanceof FeatureDialog)) return;
+    this.active.params.copy = true;
+    this.active.render();
+    this.active.update();
+    this.setStatus('Pasted on top of the original: drag an arrow or type the distances, then OK.');
+  }
+
   deleteSelection() {
     const ids = this.selector.items.filter((it) => it.kind === 'body').map((it) => it.body);
     if (ids.length) this.removeBodies(ids);
@@ -475,6 +503,114 @@ class App {
     f.suppressed = !f.suppressed;
     this.save();
     this.rebuild();
+  }
+
+  // ---------- body names and folders ----------
+
+  // Bodies with the names the user gave them.
+  named(bodies) {
+    const names = this.doc.bodyNames || {};
+    return bodies.map((b) => (names[b.id] ? { ...b, name: names[b.id] } : b));
+  }
+
+  // Change the document as one undo step, then save and redraw the tree.
+  changeDoc(fn) {
+    this.pushUndo();
+    fn(this.doc);
+    this.save();
+    this.renderSide();
+  }
+
+  renameBody(id, name) {
+    name = name.trim();
+    if (!name) return;
+    this.changeDoc((d) => { d.bodyNames = { ...d.bodyNames, [id]: name }; });
+    this.bodies = this.named(this.bodies);
+    this.renderSide();
+  }
+
+  // The folder a body is in: its own, or that of the body it was made from.
+  folderOf(id) {
+    const d = this.doc, exists = (fid) => d.folders.some((f) => f.id === fid);
+    if (id in d.bodyFolder) return exists(d.bodyFolder[id]) ? d.bodyFolder[id] : null;
+    let best = null, bestLen = 0;
+    for (const [src, fid] of Object.entries(d.bodyFolder)) {
+      if (fid && exists(fid) && src.length > bestLen && `#${id}#`.includes(`#${src}#`)) { best = fid; bestLen = src.length; }
+    }
+    return best;
+  }
+
+  newFolder(bodies = []) {
+    let n = 1;
+    while (this.doc.folders.some((f) => f.name === `Folder ${n}`)) n++;
+    const f = { id: this.newId('folder'), name: `Folder ${n}`, open: true };
+    this.changeDoc((d) => {
+      d.folders = [...d.folders, f];
+      d.bodyFolder = { ...d.bodyFolder, ...Object.fromEntries(bodies.map((id) => [id, f.id])) };
+    });
+    return f.id;
+  }
+
+  // folderId null: back to the top level.
+  moveToFolder(ids, folderId) {
+    this.changeDoc((d) => { d.bodyFolder = { ...d.bodyFolder, ...Object.fromEntries(ids.map((id) => [id, folderId || ''])) }; });
+  }
+
+  renameFolder(fid, name) {
+    name = name.trim();
+    if (!name) return;
+    this.changeDoc((d) => { d.folders = d.folders.map((f) => (f.id === fid ? { ...f, name } : f)); });
+  }
+
+  // The folder goes; its bodies stay, at the top level.
+  deleteFolder(fid) {
+    this.changeDoc((d) => {
+      d.folders = d.folders.filter((f) => f.id !== fid);
+      d.bodyFolder = Object.fromEntries(Object.entries(d.bodyFolder).filter(([, v]) => v !== fid));
+    });
+  }
+
+  // Open or closed is remembered, but isn't an undo step.
+  setFolderOpen(fid, open) {
+    const f = this.doc.folders.find((x) => x.id === fid);
+    if (!f || f.open === open) return;
+    f.open = open;
+    this.save();
+  }
+
+  folderBodies(fid) { return this.bodies.filter((b) => this.folderOf(b.id) === fid).map((b) => b.id); }
+
+  // Hide every body in the folder, or show them all if they are all hidden.
+  toggleFolder(fid) {
+    const ids = this.folderBodies(fid);
+    const h = this.doc.hiddenBodies;
+    const allHidden = ids.every((id) => h.includes(id));
+    this.doc.hiddenBodies = allHidden ? h.filter((x) => !ids.includes(x)) : [...new Set([...h, ...ids])];
+    this.save();
+    if (!this.active) {
+      this.vp.setBodies(this.bodies, { hidden: new Set(this.doc.hiddenBodies) });
+      this.shownBase = null;
+      this.selector.refresh();
+    }
+    this.renderSide();
+  }
+
+  // Select a folder's bodies, or add them to the current command's picks.
+  selectFolder(fid) {
+    const ids = this.folderBodies(fid).filter((id) => !this.doc.hiddenBodies.includes(id));
+    const a = this.active;
+    if (a?.pick === 'bodies') {
+      a.params.bodies = [...new Set([...a.params.bodies, ...ids])];
+      a.selectionChanged();
+      a.update();
+    } else if (!a) this.selector.set(ids.map((body) => ({ kind: 'body', body })));
+    this.renderSide();
+  }
+
+  // Bodies a tree action applies to: the selected ones if the clicked body is among them.
+  bodiesFor(id) {
+    const sel = this.selector.items.filter((it) => it.kind === 'body').map((it) => it.body);
+    return sel.includes(id) ? sel : [id];
   }
 
   renameFeature(i) {
@@ -525,6 +661,7 @@ class App {
     const meshes = {};
     for (const f of this.doc.features) {
       if (f.type === 'stl' && this.meshes[f.params.mesh]) meshes[f.params.mesh] = this.meshes[f.params.mesh];
+      if (f.type === 'step' && this.meshes[f.params.data]) meshes[f.params.data] = this.meshes[f.params.data];
     }
     return JSON.stringify({ ...this.doc, meshes }, null, space);
   }
@@ -612,6 +749,7 @@ class App {
         for (const handle of files || []) {
           const file = await handle.getFile();
           if (/\.stl$/i.test(file.name)) await this.insertSTL(file);
+          else if (/\.ste?p$/i.test(file.name)) await this.insertSTEP(file);
           else await this.openProject(file);
         }
       });
@@ -655,6 +793,23 @@ class App {
         units: 'mm', sx: 1, sy: 1, sz: 1, center: true, op: 'new',
       },
     });
+    this.stopActive();
+    this.active = dlg;
+    this.editingIndex = this.doc.features.length;
+    dlg.start();
+    this.renderSide();
+  }
+
+  // ---------- STEP import ----------
+
+  // A STEP file (from Fusion, FreeCAD, Onshape...) comes in as exact solids, without history.
+  async insertSTEP(file = null) {
+    if (this.active) { this.setStatus('Finish or cancel the current command first.', 'warn'); return; }
+    file ??= await openFile('.step,.stp');
+    if (!file) return;
+    const id = this.newId('step');
+    this.meshes[id] = { step: await file.text() };
+    const dlg = new FeatureDialog(this, { type: 'step', params: { data: id, name: file.name, center: false, op: 'new' } });
     this.stopActive();
     this.active = dlg;
     this.editingIndex = this.doc.features.length;
@@ -711,13 +866,30 @@ class App {
 
   // Save the given bodies as one file, asking for its name.
   async exportBodies(kind, ids, suggested) {
+    if (kind === 'step') return this.exportStep(ids, suggested);
     const meshes = this.exportMeshes();
     try {
       const saved = await saveAs(safeName(suggested), `.${kind}`, async () => {
         const res = await meshes;
         if (!res) { this.exportCache = null; throw new Error('Export was interrupted. Try again.'); }
-        const bodies = res.bodies.filter((b) => ids.includes(b.id));
+        const bodies = this.named(res.bodies.filter((b) => ids.includes(b.id)));
         return kind === 'stl' ? toSTL(bodies) : to3MF(bodies);
+      });
+      if (saved) this.setStatus(`Saved ${saved}.`);
+      return saved;
+    } catch (e) {
+      this.setStatus(`Export failed: ${e.message}`, 'warn');
+      return null;
+    }
+  }
+
+  // STEP keeps the exact shapes, so the bodies can go back into Fusion or other CAD.
+  async exportStep(ids, suggested) {
+    try {
+      const saved = await saveAs(safeName(suggested), '.step', async () => {
+        const res = await this.build({ features: this.doc.features, stepIds: ids, bodyNames: this.doc.bodyNames });
+        if (!res?.step) throw new Error('Export was interrupted. Try again.');
+        return new Uint8Array(res.step);
       });
       if (saved) this.setStatus(`Saved ${saved}.`);
       return saved;
@@ -735,7 +907,7 @@ class App {
     const ids = selected.length ? selected : visible.length === 1 ? [visible[0].id] : [];
     if (!ids.length && !visible.length) { this.setStatus('There are no visible bodies to export.', 'warn'); return; }
     if (ids.length === 1) { this.exportBodies(kind, ids, this.bodies.find((b) => b.id === ids[0]).name); return; }
-    if (ids.length && kind === '3mf') { this.exportBodies(kind, ids, this.doc.name); return; }
+    if (ids.length && kind !== 'stl') { this.exportBodies(kind, ids, this.doc.name); return; }
     this.exportPanel(kind, ids.length ? ids : visible.map((b) => b.id));
   }
 
@@ -745,7 +917,7 @@ class App {
     const close = () => this.endEdit();
     this.active = { cancel: close };
     const body = this.openPanel(`Export ${kind.toUpperCase()}`, [{ label: 'Close', onClick: close }]);
-    const bodies = ids.map((id) => this.bodies.find((b) => b.id === id));
+    const bodies = ids.map((id) => this.bodies.find((b) => b.id === id)).reverse(); // newest first
     if (kind === 'stl') {
       body.append(el('p', { class: 'muted' }, 'An STL file holds one body. Save each body you want:'));
       for (const b of bodies) {
@@ -758,18 +930,20 @@ class App {
         body.append(el('div', { class: 'export-row' }, el('span', {}, b.name), btn, note));
       }
     } else {
-      body.append(el('p', { class: 'muted' }, 'Tick the bodies to put in the file. Each one stays a separate object in the slicer.'));
+      body.append(el('p', { class: 'muted' }, kind === 'step'
+        ? 'Tick the bodies to put in the file. Each one stays a separate body in Fusion or other CAD.'
+        : 'Tick the bodies to put in the file. Each one stays a separate object in the slicer.'));
       const boxes = bodies.map((b) => [b, el('input', { type: 'checkbox' })]);
       body.append(el('div', { class: 'feature-list' }, ...boxes.map(([b, box]) => el('label', { class: 'check' }, box, b.name))));
       const go = el('button', { class: 'btn primary' }, 'Save 3MF…');
       go.addEventListener('click', () => {
         const chosen = boxes.filter(([, box]) => box.checked).map(([b]) => b);
         if (!chosen.length) { this.setStatus('Tick at least one body.', 'warn'); return; }
-        this.exportBodies('3mf', chosen.map((b) => b.id), chosen.length === 1 ? chosen[0].name : this.doc.name);
+        this.exportBodies(kind, chosen.map((b) => b.id), chosen.length === 1 ? chosen[0].name : this.doc.name);
       });
       body.append(go);
     }
-    this.exportMeshes(); // start the fine mesh while the user chooses
+    if (kind !== 'step') this.exportMeshes(); // start the fine mesh while the user chooses
   }
 
   // ---------- chrome ----------
@@ -830,6 +1004,7 @@ class App {
     $('#btn-save').onclick = () => this.saveFile();
     $('#btn-stl').onclick = () => this.exportMesh('stl');
     $('#btn-3mf').onclick = () => this.exportMesh('3mf');
+    $('#btn-step').onclick = () => this.exportMesh('step');
     $('#btn-undo').onclick = () => this.undo();
     $('#btn-redo').onclick = () => this.redo();
     $('#btn-home').onclick = () => this.vp.home();
@@ -873,6 +1048,8 @@ class App {
       if (e.key === 'Escape' && this.active) { this.active.cancel ? this.active.cancel() : this.endEdit(); return; }
       if (e.key === 'Escape') { this.selector.clear(); return; }
       if (e.key === 'Enter' && this.active?.ok) { this.active.ok(); return; }
+      if (ctrl && !this.active && e.key.toLowerCase() === 'c') { e.preventDefault(); this.copyBodies(); return; }
+      if (ctrl && !this.active && e.key.toLowerCase() === 'v') { e.preventDefault(); this.pasteBodies(); return; }
       if (ctrl || e.altKey || this.active) return;
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.deleteSelection(); return; }
       const keys = { e: 'extrude', f: 'fillet', h: 'hole', m: 'move', q: 'pressPull' };

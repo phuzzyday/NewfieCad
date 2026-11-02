@@ -136,14 +136,41 @@ double-click two bodies and press M to move them, or select a flat face and clic
    Features are extrudes, revolves, holes and primitives, for example one hole repeated into a grid of screw holes.
    Copies of bodies become new bodies. Repeated features cut or join where the originals did, and follow later edits to them.
    A circular pattern's count includes the original. With 360° the copies are spread evenly.
+   All three can be set with the mouse (the boxes on the right follow, and you can still type exact values):
+   - **Rectangular:** drag the blue arrow at the last copy to set the length, measured from the first copy to the last
+     (the copies are spread evenly inside it). Drag a red, green or blue arrow on the original to add a second direction.
+   - **Circular:** drag the blue dot to move the axis; it snaps to corners, midpoints, hole centres and the origin.
+     Drag the orange dot around the axis to set the total angle (5° steps, Shift for 1°).
+   - **Count:** the **◀ × 3 ▶** tag at the last copy. Drag its number sideways, or click its arrows.
+   - **Mirror:** drag the arrow to shift the mirror plane. **Pick a face or plane** mirrors across a flat face or an origin plane.
    In any of these steps, clicking empty space (not on a body) does the same as OK, once the preview is valid.
 9. **Insert STL** (CREATE) brings in an STL file as a solid you can cut, join, Press Pull, move, scale and pattern.
    Set the file's units (mm, cm or inches) and a scale per axis. By default it is centred on the origin and stands on the XY plane.
    Flat areas made of many triangles become single faces, so boxy parts get real faces and edges.
    STLs over 15,000 triangles are first simplified (you choose the count), because cuts on denser meshes get very slow.
    Simplifying keeps the overall shape but coarsens fine detail and curves.
-10. Every step is in the **timeline** at the bottom. Double-click one to change it, and the model rebuilds.
+10. **Insert STEP** (CREATE) brings in a `.step` / `.stp` file as exact solids, the way to bring parts over from Fusion 360
+   (in Fusion: File → Export → STEP), FreeCAD, Onshape or SolidWorks. Faces stay truly flat or round, so every tool works on them.
+   Each solid in the file becomes its own body. Fusion's history (timeline, sketches, parameters) does not travel in STEP.
+   Fusion's own `.f3d` files can't be read outside Fusion.
+11. **Copy and paste:**
+   - **Bodies:** select a body (or a face or edge of it), press **Ctrl+C**, then **Ctrl+V**. Move/Copy opens with the copy
+     sitting on the original; drag an arrow or type the distances, then OK.
+   - **Sketch curves:** in a sketch, select lines, circles or arcs and press **Ctrl+C**, then **Ctrl+V**. The copy follows
+     the mouse and snaps to points and the grid; click to drop it. Its constraints and dimensions come along (not Fix).
+     The copy stays available, so you can paste it into a different sketch too.
+12. Every step is in the **timeline** at the bottom. Double-click one to change it, and the model rebuilds.
    Right-click a step to rename, suppress or delete it.
+13. **Body names and folders** (the Bodies list in the tree on the left):
+   - **Rename** a body: double-click its name, or right-click → Rename. The name is used in exports too.
+   - **New folder:** right-click **Bodies** → New folder, or right-click a body → New folder with this body.
+     The folder's name is ready to type.
+   - **Put bodies in a folder:** drag them onto it (with several selected, all of them move), or right-click → Move to….
+     Drag onto **Bodies** (or right-click → Move out of the folder) to take them out.
+   - The folder's eye hides or shows everything in it. Right-click a folder to rename it, select all its bodies,
+     or delete it (its bodies are kept). Open or closed is remembered.
+   - Copies, pattern results and split halves of a body in a folder show up in the same folder.
+   - Folders and names are saved with the project and undo like any other change; they don't add timeline steps.
 
 Number fields accept arithmetic, for example `40/2 + 3`.
 
@@ -157,6 +184,7 @@ Number fields accept arithmetic, for example `40/2 + 3`.
 | Esc | End the line chain, cancel the dialog, or clear the selection |
 | Enter | OK in a dialog |
 | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | Undo / Redo, also inside a sketch |
+| Ctrl+C / Ctrl+V | Copy / paste bodies, or curves inside a sketch |
 | Ctrl+S | Save project |
 | F6 | Fit view |
 
@@ -164,13 +192,15 @@ Number fields accept arithmetic, for example `40/2 + 3`.
 
 - **Save** downloads a `.newfiecad.json` project file. **Open…** loads one (older `.printcad.json` files open too).
 - Your current design is also auto-saved in the browser and restored when you reopen the page.
-- Imported STLs are stored inside the project file, so a project opens complete on another computer.
+- Imported STL and STEP files are stored inside the project file, so a project opens complete on another computer.
 - **Export STL / Export 3MF** exports at a finer mesh quality than the screen uses, and asks for the file name each time.
   In Chrome and Edge this is a real Save As window where you also pick the folder; other browsers save to Downloads.
   - With bodies selected, it exports those. With nothing selected and one body, it exports that one.
   - Otherwise a panel lists the bodies. STL holds one body per file, so each body has its own **Save STL…** button.
     3MF has tick boxes and puts the ticked bodies in one file as separate objects.
   - Right-click a body in the tree to export just that body.
+- **Export STEP** saves exact solids (not triangles), with their body names, for Fusion 360 or other CAD.
+  Like 3MF, several bodies go into one file.
 
 ## Known limits of this first version
 
@@ -207,6 +237,7 @@ js/select.js        selecting outside commands (click, Ctrl, box)
 js/stl.js           STL reading and the mesh format stored in projects
 js/threads.js       thread sizes (metric, UNC, UNF), shared with the kernel
 js/snap.js          snapping placed points to corners, midpoints, centres, edges and axes
+js/screen-handles.js on-screen count tags and drag dots for the pattern dialogs
 js/simplify.js      mesh simplification (run by js/simplify-worker.js)
 js/kernel.js        talks to the kernel worker
 js/kernel-worker.js replicad / OpenCascade feature rebuild

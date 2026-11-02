@@ -23,12 +23,13 @@ function centre3(a, b, c) {
   return a.map((v, i) => v + t[i]);
 }
 
-// Snap targets on the plane through `o` with normal `n`, cached until the bodies change.
+// Snap targets on the plane through `o` with normal `n` (or anywhere, with no plane),
+// cached until the bodies change.
 let cache = { bodies: null, key: null, value: null };
 function targets(vp, o, n) {
-  const key = `${n.map((v) => v.toFixed(5))}|${dot(o, n).toFixed(4)}`;
+  const key = n ? `${n.map((v) => v.toFixed(5))}|${dot(o, n).toFixed(4)}` : 'all';
   if (cache.bodies === vp.bodyData && cache.key === key) return cache.value;
-  const off = (p) => Math.abs(dot(p, n) - dot(o, n));
+  const off = (p) => (n ? Math.abs(dot(p, n) - dot(o, n)) : 0);
   const points = [], segs = [];
   for (const b of vp.bodyData) {
     if (!b.lines || !b.edgeGroups) continue;
@@ -60,7 +61,7 @@ function targets(vp, o, n) {
   if (off([0, 0, 0]) < TOL) {
     points.push({ p: [0, 0, 0], kind: 'origin' });
     AXES.forEach((d, k) => {
-      if (Math.abs(dot(d, n)) < 1e-6) segs.push({ a: d.map((v) => -1e4 * v), b: d.map((v) => 1e4 * v), kind: 'axis', name: 'XYZ'[k] });
+      if (n && Math.abs(dot(d, n)) < 1e-6) segs.push({ a: d.map((v) => -1e4 * v), b: d.map((v) => 1e4 * v), kind: 'axis', name: 'XYZ'[k] });
     });
   }
   cache = { bodies: vp.bodyData, key, value: { points, segs } };
@@ -91,5 +92,17 @@ export function snapPoint(vp, ev, o, n) {
   if (!best) return null;
   best.point = best.point.map((v) => Math.round(v * 1000) / 1000);
   best.label = best.kind === 'axis' ? `On ${best.axis} axis` : LABELS[best.kind];
+  return best;
+}
+
+// The nearest corner, midpoint, centre or the origin anywhere on the model, or null.
+export function snapAnyPoint(vp, ev) {
+  const { points } = targets(vp, null, null);
+  let best = null, bestD = RADIUS_PX;
+  for (const t of points) {
+    const [x, y] = vp.toScreen(t.p);
+    const d = Math.hypot(x - ev.clientX, y - ev.clientY);
+    if (d < bestD) { best = { point: t.p.map((v) => Math.round(v * 1000) / 1000), kind: t.kind, label: LABELS[t.kind] }; bestD = d; }
+  }
   return best;
 }

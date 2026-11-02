@@ -565,11 +565,61 @@ function stlTool(state, f) {
   return { tool, op: p.op, name: p.name.replace(/\.stl$/i, '') };
 }
 
+// ---------- imported STEP ----------
+
+const stepSolids = new Map(); // data id -> the file's solids
+
+// The solids in a STEP file, in millimetres (the reader converts from the file's units).
+function loadStepSolids(id) {
+  if (stepSolids.has(id)) return stepSolids.get(id);
+  const text = meshData.get(id)?.step;
+  if (!text) throw new Error('The STEP data is missing from this project');
+  const oc = R.getOC();
+  oc.FS.writeFile('/import.step', text);
+  const reader = new oc.STEPControl_Reader();
+  const status = reader.ReadFile('/import.step');
+  oc.FS.unlink('/import.step');
+  if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error('Could not read the STEP file');
+  reader.TransferRoots();
+  const solids = solidsOf(R.cast(reader.OneShape()));
+  reader.delete();
+  if (!solids.length) throw new Error('The STEP file has no solid bodies (only surfaces)');
+  stepSolids.set(id, solids);
+  return solids;
+}
+
+function stepShapes(f) {
+  const p = f.params;
+  // Copies, so later steps never change the cached solids.
+  const solids = loadStepSolids(p.data).map((s) => s.clone());
+  if (!p.center) return solids;
+  // Centre on the origin in X and Y, and stand it on the XY plane.
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (const s of solids) {
+    const [lo, hi] = s.boundingBox.bounds;
+    for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i], lo[i]); max[i] = Math.max(max[i], hi[i]); }
+  }
+  const v = [-(min[0] + max[0]) / 2, -(min[1] + max[1]) / 2, -min[2]];
+  return solids.map((s) => s.translate(v));
+}
+
+function stepTool(state, f) {
+  const solids = stepShapes(f);
+  return { tool: solids.length === 1 ? solids[0] : R.makeCompound(solids), op: f.params.op, name: f.params.name.replace(/\.ste?p$/i, '') };
+}
+
+// As new bodies, each solid in the file is its own body.
+function insertStep(state, f) {
+  if (f.params.op !== 'new') { const { tool, op } = stepTool(state, f); applyBodyOp(state, f.id, tool, op); return; }
+  const solids = stepShapes(f), base = f.params.name.replace(/\.ste?p$/i, '');
+  solids.forEach((s, i) => applyBodyOp(state, i ? `${f.id}#${i}` : f.id, s, 'new', solids.length > 1 ? `${base} ${i + 1}` : base));
+}
+
 // Features that add or remove a solid "tool" shape. These can be patterned.
 const TOOL_FEATURES = {
   extrude: extrudeTool, revolve: revolveTool, hole: holeTool, loft: loftTool, sweep: sweepTool,
   box: primitiveTool, cylinder: primitiveTool, sphere: primitiveTool, torus: primitiveTool, cone: primitiveTool,
-  stl: stlTool,
+  stl: stlTool, step: stepTool,
 };
 
 // ---------- move, patterns, mirror ----------
@@ -590,8 +640,13 @@ function patternTransforms(f) {
   const out = [];
   if (f.type === 'rectPattern') {
     const n1 = count(p.count1, 'Count'), n2 = p.dir2 === 'none' ? 1 : count(p.count2, 'Second count');
-    const d1 = mul(AXES[p.dir1], Number(p.spacing1) || 0);
-    const d2 = p.dir2 === 'none' ? [0, 0, 0] : mul(AXES[p.dir2], Number(p.spacing2) || 0);
+    // Lengths run from the first copy to the last; older files give the spacing instead.
+    const step = (k, n) => {
+      const len = p[`length${k}`] ?? (Number(p[`spacing${k}`]) || 0) * (n - 1);
+      return n > 1 ? (Number(len) || 0) / (n - 1) : 0;
+    };
+    const d1 = mul(AXES[p.dir1], step(1, n1));
+    const d2 = p.dir2 === 'none' ? [0, 0, 0] : mul(AXES[p.dir2], step(2, n2));
     if (n1 * n2 > MAX_COPIES) throw new Error(`Too many copies (limit ${MAX_COPIES})`);
     for (let i = 0; i < n1; i++) {
       for (let j = 0; j < n2; j++) {
@@ -606,8 +661,11 @@ function patternTransforms(f) {
     const center = [p.cx, p.cy, p.cz].map(Number);
     for (let k = 1; k < n; k++) out.push((s) => s.clone().rotate(step * k, center, AXES[p.axis]));
   } else if (f.type === 'mirror') {
-    const nrm = MIRROR_NORMALS[p.plane];
-    const origin = mul(nrm, Number(p.offset) || 0);
+    // An origin plane, or a picked face's plane; either can be shifted along its normal.
+    const custom = p.plane === 'custom';
+    if (custom && !p.normal) throw new Error('Pick a face or an origin plane to mirror across');
+    const nrm = custom ? p.normal : MIRROR_NORMALS[p.plane];
+    const origin = add(custom ? p.point : [0, 0, 0], mul(nrm, Number(p.offset) || 0));
     out.push((s) => s.clone().mirror(nrm, origin));
   }
   return out;
@@ -627,6 +685,13 @@ function addBody(state, id, shape) {
 function pattern(state, f) {
   const p = f.params;
   const xf = patternTransforms(f);
+  // The centre of what is copied, for the dialog's handles.
+  const box = [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+  const grow = (shape) => {
+    const [lo, hi] = shape.boundingBox.bounds;
+    for (let i = 0; i < 3; i++) { box[0][i] = Math.min(box[0][i], lo[i]); box[1][i] = Math.max(box[1][i], hi[i]); }
+    state.anchor = box[0].map((v, i) => (v + box[1][i]) / 2);
+  };
   if (p.mode === 'features') {
     if (!p.features?.length) throw new Error('Select at least one feature');
     for (const id of p.features) {
@@ -634,10 +699,12 @@ function pattern(state, f) {
       if (!src || src.suppressed || !TOOL_FEATURES[src.type]) throw new Error('A selected feature is missing or suppressed');
       // The tool is rebuilt in the current state, so it follows earlier edits.
       const { tool, op } = TOOL_FEATURES[src.type](state, src);
+      grow(tool);
       xf.forEach((t, k) => applyBodyOp(state, `${f.id}#${id}#${k}`, t(tool), op));
     }
   } else {
     for (const b of selectedBodies(state, p.bodies)) {
+      grow(b.shape);
       xf.forEach((t, k) => addBody(state, `${f.id}#${b.id}#${k}`, t(b.shape)));
     }
   }
@@ -765,6 +832,7 @@ function runFeature(state, f) {
     case 'chamfer': edgeFeature(state, f, 'chamfer', Number(p.distance)); break;
     case 'shell': shell(state, f); break;
     case 'pressPull': pressPull(state, f); break;
+    case 'step': insertStep(state, f); break;
     default: {
       if (!TOOL_FEATURES[f.type]) throw new Error(`Unknown feature ${f.type}`);
       const { tool, op, name } = TOOL_FEATURES[f.type](state, f);
@@ -846,6 +914,15 @@ function build(msg) {
   const feats = msg.stopAt == null ? msg.features : msg.features.slice(0, msg.stopAt);
   const { state, errors, warnings, key } = replay(feats);
 
+  // Export STEP: the chosen bodies, named, as one file.
+  if (msg.stepIds) {
+    const chosen = state.bodies.filter((b) => msg.stepIds.includes(b.id));
+    const names = msg.bodyNames || {};
+    const blob = R.exportSTEP(chosen.map((b) => ({ shape: b.shape, name: names[b.id] || b.name, color: '#9aa5b1' })));
+    blob.arrayBuffer().then((buf) => self.postMessage({ type: 'built', id: msg.id, step: buf }, [buf]));
+    return;
+  }
+
   const opts = msg.export ? EXPORT_MESH : DISPLAY_MESH;
   const transfer = [];
   let bodies = null;
@@ -855,13 +932,15 @@ function build(msg) {
     transfer.push(...base.transfer);
   }
 
-  let preview = null, draftError = null, draftNote = null;
+  let preview = null, draftError = null, draftNote = null, draftAnchor = null;
   if (msg.draft) {
     const snapshot = copyState(state);
     snapshot.note = null; // only the step being edited reports a note
+    snapshot.anchor = null;
     try {
       runFeature(snapshot, msg.draft);
       draftNote = snapshot.note || null;
+      draftAnchor = snapshot.anchor || null;
       tidyBodies(snapshot);
       const before = new Set(state.bodies);
       const changed = snapshot.bodies.filter((b) => !before.has(b));
@@ -872,7 +951,7 @@ function build(msg) {
       transfer.push(...pm.transfer);
     } catch (e) { draftError = errText(e); }
   }
-  self.postMessage({ type: 'built', id: msg.id, baseKey: key, bodies, preview, errors, warnings, draftError, draftNote }, transfer);
+  self.postMessage({ type: 'built', id: msg.id, baseKey: key, bodies, preview, errors, warnings, draftError, draftNote, draftAnchor }, transfer);
 }
 
 function errText(e) {

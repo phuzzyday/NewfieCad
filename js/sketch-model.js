@@ -228,3 +228,41 @@ export function labelAnchor(sk, k, refIndex = 0) {
   const g = arcGeom(sk, c), m = (g.a0 + g.a1) / 2;
   return [[g.C[0] + g.r * Math.cos(m), g.C[1] + g.r * Math.sin(m)], [Math.cos(m), Math.sin(m)]];
 }
+
+// ---------- copy and paste ----------
+
+// The given curves with their points, and the constraints and dimensions among them
+// (not Fix, so a pasted copy can be moved). `base` is the point it is placed by: the
+// one nearest the lower left.
+export function copyCurves(sk, curveIds) {
+  const curves = sk.curves.filter((c) => curveIds.includes(c.id));
+  const pointIds = new Set(curves.flatMap(curvePoints));
+  const points = sk.points.filter((p) => pointIds.has(p.id));
+  const ids = new Set([...pointIds, ...curves.map((c) => c.id)]);
+  const constraints = sk.constraints.filter((k) => k.type !== 'fix' && k.refs.every((r) => ids.has(r)));
+  const lo = [Math.min(...points.map((p) => p.x)), Math.min(...points.map((p) => p.y))];
+  const base = points.reduce((b, p) => (Math.hypot(p.x - lo[0], p.y - lo[1]) < Math.hypot(b.x - lo[0], b.y - lo[1]) ? p : b));
+  return structuredClone({ points, curves, constraints, base: base.id });
+}
+
+// Add a copy with its base point at `at`, or merged into the existing point `onto`.
+// Returns the new curve ids and the base point's id.
+export function pasteCurves(sk, clip, at, onto = null) {
+  const B = clip.points.find((p) => p.id === clip.base);
+  const map = new Map();
+  for (const p of clip.points) {
+    if (p.id === clip.base && onto) { map.set(p.id, onto); continue; }
+    map.set(p.id, addPoint(sk, [Math.round((p.x - B.x + at[0]) * 1000) / 1000, Math.round((p.y - B.y + at[1]) * 1000) / 1000]));
+  }
+  const curveIds = [];
+  for (const c of clip.curves) {
+    const id = newId(sk, 'c');
+    map.set(c.id, id);
+    const copy = { ...c, id };
+    for (const key of ['p1', 'p2', 'c', 's', 'e']) if (typeof c[key] === 'string') copy[key] = map.get(c[key]);
+    sk.curves.push(copy);
+    curveIds.push(id);
+  }
+  for (const k of clip.constraints) addConstraint(sk, k.type, k.refs.map((r) => map.get(r)), k.value);
+  return { curveIds, base: map.get(clip.base) };
+}

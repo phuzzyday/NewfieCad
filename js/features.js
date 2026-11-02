@@ -9,7 +9,8 @@ import {
 } from './shape-drag.js';
 import { primitiveOutline, pressPullOutline, extrudeOutline, moveOutline, movedFacesOutline } from './outline.js';
 import { THREADS } from './threads.js';
-import { snapPoint } from './snap.js';
+import { snapPoint, snapAnyPoint } from './snap.js';
+import { ScreenHandles } from './screen-handles.js';
 
 const OPS = [['join', 'Join'], ['cut', 'Cut'], ['new', 'New Body']];
 const PRIM_OPS = [['new', 'New Body'], ['join', 'Join'], ['cut', 'Cut']];
@@ -163,6 +164,13 @@ export const FEATURE_TYPES = {
       { key: 'op', label: 'Operation', type: 'select', options: PRIM_OPS },
     ],
   },
+  step: {
+    label: 'STEP', title: 'Insert STEP', icon: 'step', pick: 'none',
+    fields: [
+      { key: 'center', label: 'Centre it on the origin and stand it on XY', type: 'checkbox' },
+      { key: 'op', label: 'Operation', type: 'select', options: PRIM_OPS },
+    ],
+  },
   move: {
     // Whole bodies (move, turn, copy), or faces (each pushed by the move along its normal).
     label: 'Move', title: 'Move / Copy', icon: 'move', pick: (p) => (p.mode === 'faces' ? 'faces' : 'bodies'),
@@ -180,20 +188,35 @@ export const FEATURE_TYPES = {
   },
   rectPattern: {
     label: 'Rectangular Pattern', icon: 'rectPattern', pick: patternPick,
-    defaults: patternDefaults({ dir1: 'x', count1: 3, spacing1: 20, dir2: 'none', count2: 2, spacing2: 20 }),
+    defaults: patternDefaults({ dir1: 'x', count1: 3, length1: 40, dir2: 'none', count2: 2, length2: 20 }),
+    hint: {
+      bodies: 'Click bodies to copy. Drag the blue arrow for the length, the coloured ones for a second direction; the tags set the count.',
+      features: 'Tick features to copy. Drag the blue arrow for the length, the coloured ones for a second direction; the tags set the count.',
+    },
+    // Older files give the gap between copies; the length runs from the first to the last.
+    upgrade(p) {
+      for (const k of [1, 2]) {
+        if (p[`length${k}`] == null) p[`length${k}`] = (Number(p[`spacing${k}`]) || 20) * Math.max(1, (Number(p[`count${k}`]) || 2) - 1);
+        delete p[`spacing${k}`];
+      }
+    },
     fields: [
       MODE_FIELD,
       { key: 'dir1', label: 'Direction 1', type: 'select', options: AXIS_OPTS },
       { key: 'count1', label: 'Count 1', type: 'number' },
-      { key: 'spacing1', label: 'Spacing 1 (mm)', type: 'number', flip: true },
+      { key: 'length1', label: 'Length 1, first to last (mm)', type: 'number', flip: true },
       { key: 'dir2', label: 'Direction 2', type: 'select', options: [['none', 'None'], ...AXIS_OPTS] },
       { key: 'count2', label: 'Count 2', type: 'number', hideIf: (p) => p.dir2 === 'none' },
-      { key: 'spacing2', label: 'Spacing 2 (mm)', type: 'number', flip: true, hideIf: (p) => p.dir2 === 'none' },
+      { key: 'length2', label: 'Length 2, first to last (mm)', type: 'number', flip: true, hideIf: (p) => p.dir2 === 'none' },
     ],
   },
   circPattern: {
     label: 'Circular Pattern', icon: 'circPattern', pick: patternPick,
     defaults: patternDefaults({ axis: 'z', cx: 0, cy: 0, cz: 0, count: 6, angle: 360 }),
+    hint: {
+      bodies: 'Click bodies to copy. Drag the blue dot onto a centre or corner to move the axis, the orange dot for the angle; the tag sets the count.',
+      features: 'Tick features to copy. Drag the blue dot onto a centre or corner to move the axis, the orange dot for the angle; the tag sets the count.',
+    },
     fields: [
       MODE_FIELD,
       { key: 'axis', label: 'Axis', type: 'select', options: AXIS_OPTS },
@@ -205,11 +228,20 @@ export const FEATURE_TYPES = {
     ],
   },
   mirror: {
-    label: 'Mirror', icon: 'mirror', pick: patternPick,
-    defaults: patternDefaults({ plane: 'YZ', offset: 0 }),
+    label: 'Mirror', icon: 'mirror',
+    pick: (p, dlg) => (dlg?.planePicking ? 'plane' : patternPick(p)),
+    defaults: patternDefaults({ plane: 'YZ', offset: 0, normal: null, point: null, face: null }),
+    hint: {
+      bodies: 'Click bodies to mirror. Drag the arrow to move the mirror plane, or pick a face or plane for it.',
+      features: 'Tick features to mirror. Drag the arrow to move the mirror plane, or pick a face or plane for it.',
+      plane: 'Click a flat face or an origin plane to mirror across.',
+    },
     fields: [
       MODE_FIELD,
-      { key: 'plane', label: 'Mirror plane', type: 'select', options: [['YZ', 'YZ (flips X)'], ['XZ', 'XZ (flips Y)'], ['XY', 'XY (flips Z)']] },
+      {
+        key: 'plane', label: 'Mirror plane', type: 'select',
+        options: (p) => [['YZ', 'YZ (flips X)'], ['XZ', 'XZ (flips Y)'], ['XY', 'XY (flips Z)'], ...(p.normal ? [['custom', 'Picked face']] : [])],
+      },
       { key: 'offset', label: 'Plane offset (mm)', type: 'number' },
     ],
   },
@@ -226,9 +258,13 @@ export const FEATURE_TYPES = {
 
 export const PRIMITIVES = ['box', 'cylinder', 'sphere', 'torus', 'cone'];
 export const PATTERNS = ['rectPattern', 'circPattern'];
+const PATTERN_HANDLES = new Set(['rectPattern', 'circPattern', 'mirror']);
+const AXIS_VEC = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+const AXIS_COLORS = { x: 0xd23b3b, y: 0x2e9e45, z: 0x2f6fd6 };
+const MIRROR_NORMALS = { XY: [0, 0, 1], XZ: [0, 1, 0], YZ: [1, 0, 0] };
 
 // Features that add or remove a solid; only these can be patterned or mirrored.
-const PATTERNABLE = new Set(['extrude', 'revolve', 'loft', 'sweep', 'hole', 'stl', ...PRIMITIVES]);
+const PATTERNABLE = new Set(['extrude', 'revolve', 'loft', 'sweep', 'hole', 'stl', 'step', ...PRIMITIVES]);
 
 // Picking modes that show every sketch so profiles or curves can be clicked in any of them.
 const SKETCH_PICKS = new Set(['sections', 'profile', 'path']);
@@ -298,6 +334,7 @@ export class FeatureDialog {
     this.index = index;
     this.stopAt = index ?? app.doc.features.length;
     this.params = params ? structuredClone(params) : this.def.defaults(app, this.stopAt);
+    this.def.upgrade?.(this.params);
     this.featureId = index != null ? app.doc.features[index].id : app.newId(type);
     this.hover = null;
     this.timer = null;
@@ -347,6 +384,8 @@ export class FeatureDialog {
     this.arrows.forEach((a) => a.gizmo.dispose());
     this.arrows = [];
     this.arrowKey = null;
+    this.handles?.dispose();
+    this.handles = null;
     window.removeEventListener('keydown', this.keyHandler);
     this.hideDim();
     this.vp.setOutline(null);
@@ -383,13 +422,16 @@ export class FeatureDialog {
   splitSquare() {
     const p = this.params;
     if (!p.normal) return null;
-    const n = p.normal;
+    return this.planeSquare(p.normal, p.point.map((v, i) => v + p.normal[i] * (Number(p.offset) || 0)), p.bodies);
+  }
+
+  // A square on the plane through `o` with normal `n`, sized to the bodies (none: all of them).
+  planeSquare(n, o, bodies) {
     const box = new THREE.Box3();
     for (const b of this.vp.bodyData) {
-      if (p.bodies.length ? !p.bodies.includes(b.id) : !b.mesh) continue;
+      if (bodies.length ? !bodies.includes(b.id) : !b.mesh) continue;
       for (let i = 0; i < b.vertices.length; i += 3) box.expandByPoint(new THREE.Vector3(b.vertices[i], b.vertices[i + 1], b.vertices[i + 2]));
     }
-    const o = p.point.map((v, i) => v + n[i] * (Number(p.offset) || 0));
     const c0 = box.isEmpty() ? o : box.getCenter(new THREE.Vector3()).toArray();
     const center = c0.map((v, i) => v - n[i] * dot(c0.map((w, k) => w - o[k]), n));
     const h = box.isEmpty() ? 20 : Math.max(...box.getSize(new THREE.Vector3()).toArray()) * 0.6 + 5;
@@ -586,6 +628,7 @@ export class FeatureDialog {
   arrowList() {
     if (this.type === 'extrude') { const a = extrudeArrow(this.app, this.params); return a ? [a] : []; }
     if (this.pick === 'place' && !this.stage) return primArrows(this.type, this.params);
+    if (this.type === 'rectPattern') return this.rectArrows();
     return [];
   }
 
@@ -594,7 +637,7 @@ export class FeatureDialog {
     const key = list.map((a) => a.key + a.dir.map((v) => v.toFixed(4)).join()).join('|');
     if (key !== this.arrowKey) {
       this.arrows.forEach((a) => a.gizmo.dispose());
-      this.arrows = list.map((a) => ({ key: a.key, gizmo: new Gizmo(this.vp, { axes: { n: a.dir }, rings: false, size: 70 }) }));
+      this.arrows = list.map((a) => ({ key: a.key, sign: a.sign, gizmo: new Gizmo(this.vp, { axes: { n: a.dir }, rings: false, size: 70, color: a.color }) }));
       this.arrowKey = key;
     }
     list.forEach((a, i) => this.arrows[i].gizmo.setCenter(a.pos));
@@ -656,7 +699,7 @@ export class FeatureDialog {
   }
 
   // Some dialogs pick bodies or features depending on a setting.
-  get pick() { return typeof this.def.pick === 'function' ? this.def.pick(this.params) : this.def.pick; }
+  get pick() { return typeof this.def.pick === 'function' ? this.def.pick(this.params, this) : this.def.pick; }
 
   placesPoint() { return this.pick === 'point' || this.pick === 'place'; }
 
@@ -721,6 +764,7 @@ export class FeatureDialog {
         bodies: !p.bodies?.length && this.type !== 'split', plane: !p.normal,
         sections: (p.sections?.length || 0) < 2, profile: true, path: !p.path, round: !p.face, features: !p.features?.length, combine: !p.target || !p.tools?.length,
       }[this.pick];
+      if (PATTERN_HANDLES.has(this.type)) this.anchorPos = res.draftAnchor;
       const error = res.draftError || res.errors?.[this.featureId] || '';
       this.errorBox.textContent = nothingPicked ? '' : error;
       if (this.noteBox) this.noteBox.textContent = nothingPicked || error ? '' : res.draftNote || '';
@@ -756,7 +800,8 @@ export class FeatureDialog {
     ]);
     const p = this.params;
     if (this.pick === 'regions') {
-      const sel = el('select', {}, ...this.app.sketchesBefore(this.stopAt).map((f) =>
+      // Newest first, like the other lists in this panel.
+      const sel = el('select', {}, ...this.app.sketchesBefore(this.stopAt).reverse().map((f) =>
         el('option', { value: f.id, selected: f.id === p.sketch }, f.name)));
       sel.addEventListener('change', () => { p.sketch = sel.value; p.profiles = 'all'; this.render(); this.update(); });
       body.append(field('Sketch', sel));
@@ -785,7 +830,13 @@ export class FeatureDialog {
         onclick: () => { Object.assign(p, { normal: null, point: null, face: null, offset: 0 }); this.showPlanes(); this.render(); this.update(); },
       }, 'Pick another plane'));
     }
-    if (this.type === 'stl') this.selInfo.classList.add('no-clear');
+    if (this.type === 'mirror') {
+      body.append(el('button', {
+        class: 'btn small', title: 'Mirror across a flat face or an origin plane',
+        onclick: () => { this.planePicking = !this.planePicking; this.hover = null; this.showPlanes(); this.render(); this.update(); },
+      }, this.planePicking ? 'Stop picking the plane' : 'Pick a face or plane'));
+    }
+    if (this.type === 'stl' || this.type === 'step') this.selInfo.classList.add('no-clear');
     if (this.pick === 'features') body.append(this.featureList());
     if (this.pick === 'combine') {
       const slot = el('select', {}, ...[['target', 'Target body'], ['tools', 'Tool bodies']].map(([v, l]) =>
@@ -810,7 +861,8 @@ export class FeatureDialog {
           input = el('div', { class: 'row' }, box, flip);
         }
       } else if (f.type === 'select') {
-        input = el('select', {}, ...f.options.map(([v, l]) => el('option', { value: v, selected: v === p[f.key] }, l)));
+        const options = typeof f.options === 'function' ? f.options(p) : f.options;
+        input = el('select', {}, ...options.map(([v, l]) => el('option', { value: v, selected: v === p[f.key] }, l)));
         input.addEventListener('change', () => {
           // A primitive's Cut grows the other way, so flip it too: switching to or from Cut
           // keeps the shape where it was drawn.
@@ -873,6 +925,7 @@ export class FeatureDialog {
         return `Target: ${name || 'none'} · Tools: ${p.tools.length}`;
       }
       case 'none': {
+        if (this.type === 'step') return `${p.name}: exact solids, without their history`;
         const n = (v) => Number(v).toLocaleString();
         return `${p.name}: ${n(p.tris)} triangles${p.origTris ? ` (simplified from ${n(p.origTris)})` : ''}`;
       }
@@ -954,10 +1007,11 @@ export class FeatureDialog {
     if (this.pick === 'plane' && this.hover?.kind === 'face' && this.hover.flat) {
       items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
     }
-    if (this.type === 'split') {
-      const sq = this.splitSquare();
+    if (this.type === 'split' || (this.type === 'mirror' && !this.planePicking)) {
+      const sq = this.type === 'split' ? this.splitSquare() : this.mirrorSquare();
       if (sq) items.push({ kind: 'quad', corners: sq.corners, color: 0xff8a00 });
     }
+    if (this.type === 'circPattern') items.push(...this.circLines());
     if (this.placesPoint()) {
       if (p.point) items.push({ kind: 'points', points: [p.point], color: 0x0a6cff, size: 10 });
       if (this.hover?.point) items.push({ kind: 'points', points: [this.hover.point], color: 0x6fb6ff, size: 8 });
@@ -965,6 +1019,7 @@ export class FeatureDialog {
     this.vp.setOverlay(items);
     this.placeGizmo();
     this.placeArrows();
+    this.placeScreenHandles();
   }
 
   // Loft and Sweep: every earlier sketch, with its profiles (or, for a path, its curves) clickable.
@@ -1005,15 +1060,16 @@ export class FeatureDialog {
       this.gizmo?.setCenter(p.face.c.map((v, i) => v + p.normal[i] * d));
       return;
     }
-    if (this.type === 'split') {
-      // One arrow along the plane's normal, in the middle of the cut.
-      const key = p.normal ? p.normal.join() : null;
+    if (this.type === 'split' || this.type === 'mirror') {
+      // One arrow along the plane's normal, in the middle of the plane.
+      const n = this.type === 'split' ? p.normal : !this.planePicking && this.mirrorNormal();
+      const key = n ? n.join() : null;
       if (key !== this.gizmoKey) {
         this.gizmo?.dispose();
-        this.gizmo = key ? new Gizmo(this.vp, { axes: { n: p.normal }, rings: false }) : null;
+        this.gizmo = key ? new Gizmo(this.vp, { axes: { n }, rings: false }) : null;
         this.gizmoKey = key;
       }
-      this.gizmo?.setCenter(this.splitSquare()?.center ?? null);
+      this.gizmo?.setCenter((this.type === 'split' ? this.splitSquare() : this.mirrorSquare())?.center ?? null);
       return;
     }
     if (this.type !== 'move') return;
@@ -1038,6 +1094,187 @@ export class FeatureDialog {
     const list = this.params.faces;
     if (!list?.length) return null;
     return [0, 1, 2].map((k) => list.reduce((s, f) => s + f.c[k], 0) / list.length);
+  }
+
+  // ---------- pattern and mirror handles ----------
+
+  // Rectangular Pattern: per direction, a blue arrow at the last copy sets the length;
+  // with no second direction yet, X/Y/Z arrows at the original start one.
+  rectArrows() {
+    const p = this.params, c = this.anchorPos;
+    if (!c) return [];
+    const out = [];
+    for (const k of p.dir2 === 'none' ? [1] : [1, 2]) {
+      const len = Number(p[`length${k}`]) || 0, sign = len < 0 ? -1 : 1, axis = AXIS_VEC[p[`dir${k}`]];
+      const reach = (Number(p[`count${k}`]) || 1) > 1 ? len : 0;
+      out.push({ key: `len${k}`, sign, dir: axis.map((v) => v * sign), pos: c.map((v, i) => v + axis[i] * reach), color: 0x0a6cff });
+    }
+    if (p.dir2 === 'none') {
+      for (const a of ['x', 'y', 'z']) if (a !== p.dir1) out.push({ key: `new:${a}`, sign: 1, dir: AXIS_VEC[a], pos: c, color: AXIS_COLORS[a] });
+    }
+    return out;
+  }
+
+  applyRectArrow(a, start, amt, step) {
+    const p = this.params, d = Math.round(amt / step) * step * a.sign;
+    const clean = (v) => Math.round(v * 1000) / 1000;
+    if (a.key.startsWith('new:')) {
+      p.dir2 = a.key.slice(4);
+      p.count2 = Math.max(2, Number(start.count2) || 2);
+      p.length2 = clean(d);
+    } else {
+      const k = a.key.slice(3);
+      const had = (Number(start[`count${k}`]) || 1) > 1;
+      p[`length${k}`] = clean((had ? Number(start[`length${k}`]) || 0 : 0) + d);
+      if (!had) p[`count${k}`] = 2;
+    }
+    this.render();
+    this.update(true, true);
+  }
+
+  // Circular Pattern: the axis level with the original, the original's offset from it,
+  // and where any angle around it lands.
+  circFrame() {
+    const p = this.params, c0 = this.anchorPos;
+    if (!c0) return null;
+    const a = new THREE.Vector3(...AXIS_VEC[p.axis]);
+    const c = new THREE.Vector3(Number(p.cx) || 0, Number(p.cy) || 0, Number(p.cz) || 0);
+    const anchor = new THREE.Vector3(...c0);
+    const pc = c.clone().addScaledVector(a, anchor.clone().sub(c).dot(a));
+    let r = anchor.clone().sub(pc);
+    if (r.length() < 1e-6) r = new THREE.Vector3(...xDirFor(a.toArray())).multiplyScalar(this.vp.unitsPerPixel() * 80);
+    const n = Math.max(1, Math.round(Number(p.count)) || 1), total = Number(p.angle) || 360;
+    const stepDeg = Math.abs(total) >= 360 ? 360 / n : total / Math.max(1, n - 1);
+    const at = (deg) => pc.clone().add(r.clone().applyAxisAngle(a, THREE.MathUtils.degToRad(deg))).toArray();
+    return { a, pc, r, n, total, stepDeg, at };
+  }
+
+  circLines() {
+    const f = this.circFrame();
+    if (!f) return [];
+    const half = Math.max(f.r.length() * 1.5, 20);
+    const axis = [f.pc.clone().addScaledVector(f.a, -half).toArray(), f.pc.clone().addScaledVector(f.a, half).toArray()];
+    const arc = [], segs = 48;
+    for (let i = 0; i < segs; i++) arc.push(f.at((f.total * i) / segs), f.at((f.total * (i + 1)) / segs));
+    return [{ kind: 'edge', points: axis, color: 0x2f6fd6 }, { kind: 'edge', points: arc, color: 0xff8a00 }];
+  }
+
+  // Count tags at the last copy in each direction, and the circular pattern's two dots.
+  placeScreenHandles() {
+    if (this.type !== 'rectPattern' && this.type !== 'circPattern') return;
+    this.handles ??= new ScreenHandles(this.vp);
+    const p = this.params, specs = [];
+    const setCount = (key) => (v, live) => {
+      p[key] = Math.max(1, Math.min(200, v));
+      this.render();
+      this.update(live, live);
+    };
+    const c = this.anchorPos;
+    if (c && this.type === 'rectPattern') {
+      for (const k of p.dir2 === 'none' ? [1] : [1, 2]) {
+        const n = Number(p[`count${k}`]) || 1, axis = AXIS_VEC[p[`dir${k}`]];
+        const reach = n > 1 ? Number(p[`length${k}`]) || 0 : 0;
+        specs.push({
+          key: `count${k}`, kind: 'count', value: n, pos: c.map((v, i) => v + axis[i] * reach),
+          title: `Copies in direction ${k}: drag sideways or click the arrows`, onCount: setCount(`count${k}`),
+        });
+      }
+    }
+    const f = this.type === 'circPattern' && this.circFrame();
+    if (f) {
+      specs.push({
+        key: 'count', kind: 'count', value: f.n, pos: f.at(f.stepDeg * (f.n - 1)),
+        title: 'Number of copies (with the original): drag sideways or click the arrows', onCount: setCount('count'),
+      });
+      specs.push({
+        key: 'angle', kind: 'dot', pos: f.at(f.total), title: 'Drag around the axis to set the total angle',
+        onStart: (ev) => this.angleDragStart(ev), onMove: (ev) => this.angleDrag(ev), onEnd: () => { this.dotDrag = null; this.update(); },
+      });
+      specs.push({
+        key: 'axis', kind: 'dot axis', pos: f.pc.toArray(), title: 'Drag to move the axis; it snaps to centres, corners and the origin',
+        onStart: () => { this.dotDrag = { frame: f }; },
+        onMove: (ev) => this.axisDrag(ev),
+        onEnd: () => { this.dotDrag = null; this.showSnap(null); this.update(); },
+      });
+    }
+    this.handles.set(specs);
+  }
+
+  // Where the mouse ray meets the plane across the axis, as a direction from the axis.
+  aroundAxis(ev, f) {
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(f.a, f.pc);
+    const hit = this.vp.ray(ev).ray.intersectPlane(plane, new THREE.Vector3());
+    if (!hit) return null;
+    const v = hit.sub(f.pc);
+    return v.lengthSq() > 1e-12 ? v.normalize() : null;
+  }
+
+  angleDragStart(ev) {
+    const f = this.circFrame();
+    const v = f && this.aroundAxis(ev, f);
+    this.dotDrag = v ? { frame: f, last: v, turned: 0, start: f.total } : null;
+  }
+
+  // Angles snap to 5 degrees (Shift: 1). Turning keeps counting, so it can reach 360.
+  angleDrag(ev) {
+    const d = this.dotDrag;
+    const v = d?.last && this.aroundAxis(ev, d.frame);
+    if (!v) return;
+    const sin = new THREE.Vector3().crossVectors(d.last, v).dot(d.frame.a);
+    d.turned += THREE.MathUtils.radToDeg(Math.atan2(sin, d.last.dot(v)));
+    d.last = v;
+    const step = ev.shiftKey ? 1 : 5;
+    let ang = Math.max(-360, Math.min(360, Math.round((d.start + d.turned) / step) * step));
+    if (!ang) ang = d.turned < 0 ? -step : step;
+    if (ang === this.params.angle) return;
+    this.params.angle = ang;
+    this.render();
+    this.update(true, true);
+  }
+
+  // The axis moves across itself, onto a snapped point or in 1 mm steps (Shift: 0.1 mm).
+  axisDrag(ev) {
+    const f = this.dotDrag?.frame;
+    if (!f) return;
+    const p = this.params, snap = snapAnyPoint(this.vp, ev);
+    this.showSnap(snap);
+    let pt = snap?.point;
+    if (!pt) {
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(f.a, f.pc);
+      const hit = this.vp.ray(ev).ray.intersectPlane(plane, new THREE.Vector3());
+      if (!hit) return;
+      const step = ev.shiftKey ? 0.1 : 1;
+      pt = hit.toArray().map((v) => Math.round(Math.round(v / step) * step * 1000) / 1000);
+    }
+    if (pt.every((v, i) => v === Number([p.cx, p.cy, p.cz][i]))) return;
+    [p.cx, p.cy, p.cz] = pt;
+    this.render();
+    this.update(true, true);
+  }
+
+  // Mirror: the plane's normal and square, and picking a face or origin plane for it.
+  mirrorNormal() {
+    const p = this.params;
+    return p.plane === 'custom' ? p.normal : MIRROR_NORMALS[p.plane];
+  }
+
+  mirrorSquare() {
+    const p = this.params, n = this.mirrorNormal();
+    if (!n) return null;
+    const base = p.plane === 'custom' ? p.point : [0, 0, 0];
+    return this.planeSquare(n, base.map((v, i) => v + n[i] * (Number(p.offset) || 0)), p.mode === 'bodies' ? p.bodies : []);
+  }
+
+  setMirrorPlane(hit) {
+    const p = this.params;
+    if (hit.kind === 'plane') Object.assign(p, { plane: hit.name, normal: null, point: null, face: null });
+    else if (!hit.flat) { this.app.setStatus('Pick a flat face, or an origin plane.', 'warn'); return false; }
+    else Object.assign(p, { plane: 'custom', normal: hit.sig.n, point: (hit.point || hit.sig.c).map((v) => Math.round(v * 1000) / 1000), face: hit.sig });
+    p.offset = 0;
+    this.planePicking = false;
+    this.hover = null;
+    this.showPlanes();
+    return true;
   }
 
   // ---------- gizmo dragging (Move) ----------
@@ -1075,6 +1312,7 @@ export class FeatureDialog {
       if (amt == null) return;
       const step = ev.shiftKey ? 0.1 : 1;
       if (this.type === 'extrude') applyExtrudeArrow(this.params, start, amt, step);
+      else if (this.type === 'rectPattern') { this.applyRectArrow(a, start, amt, step); return; }
       else applyPrimArrow(this.type, this.params, start, a.key, amt, step);
       this.render();
       this.showOutline();
@@ -1089,7 +1327,7 @@ export class FeatureDialog {
     if (this.type === 'pressPull') {
       p.distance = clean(st.distance + snap(amt, ev.shiftKey ? 0.1 : 1));
       this.showOutline();
-    } else if (this.type === 'split') {
+    } else if (this.type === 'split' || this.type === 'mirror') {
       p.offset = clean(st.offset + snap(amt, ev.shiftKey ? 0.1 : 1));
     } else if (h.kind === 'move' && h.axis === 'n') {
       // Along the face normal: all three distances change together.
@@ -1115,10 +1353,10 @@ export class FeatureDialog {
     this.update();
   }
 
-  // Checklist of earlier features that can be repeated.
+  // Checklist of earlier features that can be repeated, newest first.
   featureList() {
     const p = this.params;
-    const list = this.app.doc.features.slice(0, this.stopAt).filter((f) => PATTERNABLE.has(f.type) && !f.suppressed);
+    const list = this.app.doc.features.slice(0, this.stopAt).filter((f) => PATTERNABLE.has(f.type) && !f.suppressed).reverse();
     if (!list.length) return el('p', { class: 'muted' }, 'No extrudes, holes or primitives before this step.');
     return el('div', { class: 'feature-list' }, ...list.map((f) => {
       const box = el('input', { type: 'checkbox', checked: p.features.includes(f.id) });
@@ -1265,7 +1503,7 @@ export class FeatureDialog {
       return;
     }
     if (this.pick === 'plane') {
-      if (this.setSplitPlane(hit)) { this.render(); this.update(); }
+      if (this.type === 'mirror' ? this.setMirrorPlane(hit) : this.setSplitPlane(hit)) { this.render(); this.update(); }
       return;
     }
     if (this.pick === 'round') {
@@ -1346,6 +1584,7 @@ export class FeatureDialog {
     this.stop();
     // A new import that is cancelled leaves nothing behind.
     if (this.type === 'stl' && this.index == null) delete this.app.meshes[this.params.mesh];
+    if (this.type === 'step' && this.index == null) delete this.app.meshes[this.params.data];
     this.app.endEdit();
   }
 }

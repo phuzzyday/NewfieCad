@@ -20,6 +20,7 @@ export const ICONS = {
   cone: svg('<path d="M12 3L5 18M12 3l7 15"/><path d="M5 18a7 2.6 0 0 0 14 0"/><path d="M5 18a7 2.6 0 0 1 14 0" stroke-dasharray="2 2"/>'),
   primitives: svg('<path d="M3 10l5-2.5 5 2.5v6l-5 2.5-5-2.5z"/><circle cx="17" cy="8" r="4"/><path d="M15 21h7"/><path d="M18.5 14l3 5h-6z"/>'),
   pressPull: svg('<path d="M3 15l9 4 9-4-9-4z" fill="currentColor" fill-opacity=".15"/><path d="M3 15v3l9 4 9-4v-3"/><path d="M12 13V3M9 6l3-3 3 3"/>'),
+  step: svg('<path d="M4 8l6-4 6 4v7l-6 4-6-4z"/><path d="M4 8l6 4 6-4M10 12v7"/><path d="M19 10v10M16 17l3 3 3-3"/>'),
   stl: svg('<path d="M4 8l6-4 6 4v7l-6 4-6-4z"/><path d="M4 8l6 4 6-4M10 12v7M4 15l6-3 6 3"/><path d="M19 10v10M16 17l3 3 3-3"/>'),
   scale: svg('<rect x="3" y="11" width="10" height="10"/><rect x="3" y="3" width="18" height="18" stroke-dasharray="2 2"/><path d="M13 11l7-7M15 4h5v5"/>'),
   combine: svg('<rect x="3" y="7" width="11" height="11"/><circle cx="15" cy="10" r="6" fill="currentColor" fill-opacity=".15"/>'),
