@@ -94,10 +94,12 @@ double-click two bodies and press M to move them, or select a flat face and clic
    With several bodies, set Type to **Hollow (sealed)** and click the body. A sealed hollow traps resin on resin printers; add a drain hole.
 5. Or skip the sketch: **Primitives ▾** opens a row of buttons under the toolbar for Box, Cylinder, Sphere, Torus and Cone.
    The row stays open until you click the same ▾ button again, press ×, or open another ▾ row (Pattern ▾ has one too).
-   Draw it like in Fusion: click an origin plane (snaps to whole millimetres) or a flat face, move the mouse and click to set the size,
-   then move and click to set the height. For a Box the first click is a corner; for the round shapes it is the centre.
-   The height starts at 2 mm and follows the mouse from there. To skip that step, untick **Set height with the mouse**
-   in the panel (it's remembered): the shape is then 2 mm high, and you change it afterwards with the top arrow or the panel.
+   First click the face or origin plane to draw on; it turns blue. Then click a point on it (snaps to corners, midpoints and
+   edges on that surface, or whole millimetres on an origin plane), move the mouse and click to set the size.
+   For a Box the point is a corner; for the round shapes it is the centre. Picking the surface first keeps the shape on the
+   side you are looking at, even on a thin part.
+   The shape starts 2 mm high. Tick **Set height with the mouse** in the panel (it's remembered) to set the height with
+   one more move and click; otherwise change it afterwards with the top arrow or the panel.
    While moving, type a number to enter it exactly (Tab between Width and Depth, Enter applies). Sizes snap to 1 mm; Shift gives 0.1 mm.
    **Snapping:** the first click and the second (a box's far corner, a round shape's size) snap to corners, edge
    midpoints, circle and arc centres and edges in the plane you're drawing on, and on the origin planes to the

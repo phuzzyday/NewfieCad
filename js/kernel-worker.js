@@ -68,13 +68,22 @@ function cutBodies(state, tool) {
   state.bodies = state.bodies.map((b) => (boxesOverlap(b.shape, tool) ? { ...b, shape: b.shape.cut(tool) } : b));
 }
 
-function applyBodyOp(state, featureId, tool, op, name = null) {
+function touches(a, b) {
+  if (!boxesOverlap(a, b)) return false;
+  const t = new R.DistanceTool();
+  try { return t.distanceBetween(a, b) < 1e-4; } catch { return true; } finally { t.delete(); }
+}
+
+// `onBody`: the index of the body the feature was placed on, if any.
+function applyBodyOp(state, featureId, tool, op, name = null, onBody = -1) {
   if (op === 'cut') {
     if (!state.bodies.length) throw new Error('Nothing to cut');
     cutBodies(state, tool);
   } else if (op === 'join' && state.bodies.length) {
-    // Join into the first body the tool touches, or the newest body.
-    let i = state.bodies.findIndex((b) => boxesOverlap(b.shape, tool));
+    // Join into the body it was placed on, else the first body it really touches
+    // (not just one whose bounding box it reaches), else the newest body.
+    let i = onBody >= 0 && touches(state.bodies[onBody].shape, tool) ? onBody
+      : state.bodies.findIndex((b) => touches(b.shape, tool));
     if (i < 0) i = state.bodies.length - 1;
     const target = state.bodies[i];
     state.bodies = state.bodies.map((b, k) => (k === i ? { ...target, shape: target.shape.fuse(tool) } : b));
@@ -422,13 +431,18 @@ function thread(state, f) {
 // Placement point of a hole or primitive. If it was placed on a face, it follows
 // that face, so it stays on the surface when the face moves.
 function placedPoint(state, p) {
-  let pt = p.point;
+  return placedOn(state, p).point;
+}
+
+// The placement point, moved onto its face if the face has moved, and that face's body.
+function placedOn(state, p) {
+  let point = p.point, body = -1;
   const n = p.normal;
   if (p.face && state.bodies.length) {
     const m = matchFace(state, p.face);
-    if (m && dot(m.sig.n, n) > 0.999) pt = add(pt, mul(n, dot(sub(m.sig.c, pt), n)));
+    if (m && dot(m.sig.n, n) > 0.999) { point = add(point, mul(n, dot(sub(m.sig.c, point), n))); body = m.bi; }
   }
-  return pt;
+  return { point, body };
 }
 
 function holeTool(state, f) {
@@ -464,7 +478,7 @@ function positive(...vals) {
 function primitiveTool(state, f) {
   const p = f.params;
   if (!p.point || !p.normal) throw new Error('Click a plane or face to place it');
-  const placed = placedPoint(state, p);
+  const { point: placed, body: onBody } = placedOn(state, p);
   const x = p.xDir;
   const flip = (p.flip ? -1 : 1) * (p.op === 'cut' ? -1 : 1);
   const dir = mul(p.normal, flip);
@@ -508,7 +522,7 @@ function primitiveTool(state, f) {
       break;
     }
   }
-  return { tool, op: p.op };
+  return { tool, op: p.op, onBody };
 }
 
 // ---------- imported STL ----------
@@ -835,8 +849,8 @@ function runFeature(state, f) {
     case 'step': insertStep(state, f); break;
     default: {
       if (!TOOL_FEATURES[f.type]) throw new Error(`Unknown feature ${f.type}`);
-      const { tool, op, name } = TOOL_FEATURES[f.type](state, f);
-      applyBodyOp(state, f.id, tool, op, name);
+      const { tool, op, name, onBody } = TOOL_FEATURES[f.type](state, f);
+      applyBodyOp(state, f.id, tool, op, name, onBody);
     }
   }
 }

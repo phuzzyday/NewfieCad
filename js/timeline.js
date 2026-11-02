@@ -5,6 +5,8 @@ import { ICONS } from './icons.js';
 import { FEATURE_TYPES } from './features.js';
 
 export function renderTimeline(app, container) {
+  const scroll = container.scrollLeft, before = Number(container.dataset.count) || 0;
+  container.dataset.count = app.doc.features.length;
   container.replaceChildren();
   const { features } = app.doc;
   if (!features.length) {
@@ -25,6 +27,14 @@ export function renderTimeline(app, container) {
     });
     container.append(item);
   });
+  // A new step scrolls to the end, so the latest are in view; the step being edited is
+  // kept in view; otherwise the timeline stays where it was.
+  const editing = container.querySelector('.tl-item.editing');
+  if (features.length > before) container.scrollLeft = container.scrollWidth;
+  else {
+    container.scrollLeft = scroll;
+    editing?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 }
 
 export function featureMenu(app, i) {

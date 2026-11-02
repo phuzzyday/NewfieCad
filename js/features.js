@@ -288,6 +288,10 @@ const PICK_HINT = {
 };
 
 const STAGE_HINT = {
+  surface: () => 'Click a face or an origin plane to draw on.',
+  point: (t) => (t === 'box'
+    ? 'Click the first corner. It snaps to corners, midpoints and edges on this surface.'
+    : 'Click the centre. It snaps to corners, midpoints and edges on this surface.'),
   size: (t) => (t === 'box'
     ? 'Move to size the base, then click. Or type Width, Tab, Depth and press Enter.'
     : 'Move to set the diameter, then click. Or type it and press Enter.'),
@@ -300,9 +304,9 @@ const STAGE_HINT = {
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 // Whether a new primitive's height (a torus's tube) follows the mouse after its base is
-// drawn. Remembered between visits; when off, it is 2 mm and changed afterwards.
+// drawn. Remembered between visits; when off (the start), it is 2 mm and changed afterwards.
 const HEIGHT_KEY = 'newfiecad.mouseHeight';
-const mouseHeight = () => { try { return localStorage.getItem(HEIGHT_KEY) !== 'off'; } catch { return true; } };
+const mouseHeight = () => { try { return localStorage.getItem(HEIGHT_KEY) === 'on'; } catch { return false; } };
 const setMouseHeight = (on) => { try { localStorage.setItem(HEIGHT_KEY, on ? 'on' : 'off'); } catch { /* storage unavailable */ } };
 
 // Distance along the line through c in direction dir (unit) closest to the mouse ray.
@@ -341,7 +345,7 @@ export class FeatureDialog {
     this.preselect = params ? null : preselect;
     this.slot = this.params.target ? 'tools' : 'target'; // where Combine's next click goes
     this.autoPicked = new Set(); // picking modes already given their only body
-    this.stage = null; // new primitives: 'point', then 'size', then 'height', then null
+    this.stage = null; // new primitives: 'surface', 'point', then 'size', then 'height', then null
     this.arrows = []; // resize arrows: [{ key, gizmo }]
   }
 
@@ -364,8 +368,16 @@ export class FeatureDialog {
       this.params.mode = 'faces';
     }
     if (this.preselect?.length) this.applySelection(this.preselect);
-    // A new primitive is drawn: click a point, drag its size, then its height.
-    if (this.pick === 'place' && this.index == null) this.beginStage(this.params.point ? 'size' : 'point');
+    // A new primitive is drawn: click the surface, then a point, drag its size, then its height.
+    // A face selected beforehand is the surface.
+    if (this.pick === 'place' && this.index == null) {
+      const p = this.params;
+      if (p.normal) {
+        this.surface = { point: p.point, normal: p.normal, xDir: p.xDir, face: p.face, ...(p.face && this.vp.findFace(p.face)) };
+        Object.assign(p, { point: null, normal: null, xDir: null, face: null });
+      }
+      this.beginStage(this.surface ? 'point' : 'surface');
+    }
     this.keyHandler = (e) => this.onKey(e);
     window.addEventListener('keydown', this.keyHandler);
     this.render();
@@ -455,6 +467,43 @@ export class FeatureDialog {
   beginStage(stage) {
     this.stage = stage;
     if (stage === 'size') this.anchor = this.params.point.slice();
+  }
+
+  // The surface clicked first: a face (its body and face group for the highlight) or an origin plane.
+  pickSurface(hit) {
+    if (hit?.kind === 'plane') {
+      const pl = PLANES[hit.name];
+      this.surface = { point: [0, 0, 0], normal: pl.normal, xDir: pl.xDir, face: null, plane: hit.name };
+    } else if (hit?.kind === 'face') {
+      this.surface = { point: hit.point, normal: hit.normal, xDir: xDirFor(hit.normal), face: hit.sig, body: hit.body, group: hit.group };
+    } else return;
+    this.hover = null;
+    this.beginStage('point');
+    this.render();
+  }
+
+  // Where a point goes on the chosen surface: snapped, else where the mouse ray meets
+  // its plane (whole millimetres on an origin plane). Alt places it freely.
+  surfacePoint(ev) {
+    const s = this.surface;
+    const snap = ev.altKey ? null : snapPoint(this.vp, ev, s.point, s.normal);
+    if (snap) return { point: snap.point, snap };
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...s.normal), new THREE.Vector3(...s.point));
+    const hit = this.vp.ray(ev).ray.intersectPlane(plane, new THREE.Vector3());
+    if (!hit) return null;
+    const point = hit.toArray().map((v) => (s.plane ? Math.round(v) : Math.round(v * 1000) / 1000));
+    return { point, snap: null };
+  }
+
+  placePoint(ev) {
+    const at = this.surfacePoint(ev);
+    if (!at) return;
+    const s = this.surface;
+    Object.assign(this.params, { point: at.point, normal: s.normal, xDir: s.xDir, face: s.face });
+    this.showSnap(null);
+    this.beginStage('size');
+    this.render();
+    this.update();
   }
 
   advanceStage() {
@@ -789,7 +838,7 @@ export class FeatureDialog {
 
   render() {
     this.autoPick();
-    const stageHint = this.pick === 'place' && this.stage !== 'point' && STAGE_HINT[this.stage || 'adjust'](this.type);
+    const stageHint = this.pick === 'place' && STAGE_HINT[this.stage || 'adjust'](this.type);
     this.hintText = stageHint || this.def.hint?.[this.pick] || PICK_HINT[this.pick];
     this.app.setStatus(this.hintText);
     this.vp.setSnapMarker(null);
@@ -1003,6 +1052,13 @@ export class FeatureDialog {
       const f = p.face && this.vp.findFace(p.face);
       if (f) items.push({ kind: 'face', ...f, color: 0x0a6cff });
       if (this.hover?.kind === 'face' && !this.hover.flat) items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
+    }
+    // Drawing a new primitive: the face under the mouse, then the chosen face.
+    if (this.stage === 'surface' && this.hover?.kind === 'face') {
+      items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
+    }
+    if (this.stage === 'point' && this.surface.face && this.surface.body != null) {
+      items.push({ kind: 'face', body: this.surface.body, group: this.surface.group, color: 0x0a6cff });
     }
     if (this.pick === 'plane' && this.hover?.kind === 'face' && this.hover.flat) {
       items.push({ kind: 'face', body: this.hover.body, group: this.hover.group, color: 0x6fb6ff });
@@ -1459,6 +1515,19 @@ export class FeatureDialog {
 
   onMove(ev) {
     if (this.dragging()) { this.dragStage(ev); return; }
+    if (this.stage === 'surface') {
+      this.hover = this.vp.pick(ev, { faces: true, planes: true });
+      const name = this.hover?.kind === 'plane' ? this.hover.name : null;
+      if (name !== this.hoverPlane) { this.hoverPlane = name; this.vp.showOriginPlanes(true, name); }
+      this.refreshPicks();
+      return;
+    }
+    if (this.stage === 'point') {
+      const name = this.surface.plane || null;
+      if (name !== this.hoverPlane) { this.hoverPlane = name; this.vp.showOriginPlanes(true, name); }
+      this.showSnap(this.surfacePoint(ev)?.snap);
+      return;
+    }
     const arrow = this.hoverArrows(ev);
     this.vp.renderer.domElement.style.cursor = !arrow && this.overShape(ev) ? 'move' : '';
     if (arrow) { this.hover = null; this.refreshPicks(); return; }
@@ -1487,6 +1556,8 @@ export class FeatureDialog {
 
   onClick(ev) {
     if (this.dragging()) { this.dragStage(ev); this.advanceStage(); return; }
+    if (this.stage === 'surface') { this.pickSurface(this.vp.pick(ev, { faces: true, planes: true })); return; }
+    if (this.stage === 'point') { this.placePoint(ev); return; }
     // A click on empty space (no body, profile or plane under it) is OK, once the step is valid.
     const what = this.pickWhat();
     // A point placed just beside a body can snap onto it, so that isn't empty space.
