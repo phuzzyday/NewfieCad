@@ -274,14 +274,16 @@ class App {
     if (!res || !this.active) return null;
     if (res.bodies) this.base = { key: res.baseKey, bodies: res.bodies };
     res.bodies = this.base.bodies;
-    const shown = `${res.baseKey}|${!!res.preview}|${showBaseEdges}`;
+    const hidden = new Set(this.doc.hiddenBodies);
+    const shown = `${res.baseKey}|${!!res.preview}|${showBaseEdges}|${[...hidden]}`;
     if (res.preview) {
       const byId = new Map(res.bodies.map((b) => [b.id, b]));
       res.preview = res.preview.map((b) => (b.same ? byId.get(b.id) : b));
-      if (this.shownBase !== shown) this.vp.setBodies(res.bodies, { visible: false, showEdges: showBaseEdges });
-      this.vp.setPreview(res.preview);
+      // Hidden bodies stay hidden (and can't be picked) while a command is open.
+      if (this.shownBase !== shown) this.vp.setBodies(res.bodies, { visible: false, showEdges: showBaseEdges, hidden });
+      this.vp.setPreview(res.preview.filter((b) => !hidden.has(b.id)));
     } else {
-      if (this.shownBase !== shown) this.vp.setBodies(res.bodies);
+      if (this.shownBase !== shown) this.vp.setBodies(res.bodies, { hidden });
       this.vp.setPreview(null);
     }
     this.shownBase = shown;
@@ -291,7 +293,7 @@ class App {
   async showBase(stopAt) {
     const res = await this.build({ features: this.doc.features, stopAt });
     if (!res || !this.active) return;
-    this.vp.setBodies(res.bodies);
+    this.vp.setBodies(res.bodies, { hidden: new Set(this.doc.hiddenBodies) });
     this.shownBase = null;
     this.vp.setPreview(null);
   }
