@@ -30,9 +30,16 @@ def main():
     port = int(args[0]) if args else 8765
     root = os.path.dirname(os.path.abspath(__file__))
     handler = functools.partial(NoCacheHandler, directory=root)
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
     url = f"http://127.0.0.1:{port}/"
-    print(f"NewfieCad is running at {url}  (press Ctrl+C to stop)")
+    try:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+    except OSError:
+        # Already running (started earlier): just open it again.
+        print(f"NewfieCad is already running at {url}", flush=True)
+        if "--no-browser" not in sys.argv:
+            webbrowser.open(url)
+        return
+    print(f"NewfieCad is running at {url}  (press Ctrl+C to stop)", flush=True)
     if "--no-browser" not in sys.argv:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:

@@ -3,3 +3,6 @@
 
 # Python
 __pycache__/
+
+# Linux launcher: holds this machine's folder path
+NewfieCad.desktop
