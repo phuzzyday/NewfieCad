@@ -214,6 +214,11 @@ class App {
     if (failed.length && !this.active) {
       const f = this.featureById(failed[0]);
       this.setStatus(`${f?.name || 'A feature'} failed: ${res.errors[failed[0]]}`, 'warn');
+      this.failureShown = $('#status').textContent;
+    } else if (!failed.length && this.failureShown) {
+      // Fixed, suppressed or deleted: the warning goes, unless something else has replaced it.
+      if ($('#status').textContent === this.failureShown) this.setStatus('');
+      this.failureShown = null;
     }
   }
 
