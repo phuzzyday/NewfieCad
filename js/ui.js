@@ -47,3 +47,14 @@ export function contextMenu(x, y, items) {
   const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); window.removeEventListener('pointerdown', close, true); } };
   setTimeout(() => window.addEventListener('pointerdown', close, true));
 }
+
+// A row that scrolls sideways fades out at an edge with more past it, so it doesn't look cut off.
+export function scrollHints(row) {
+  const update = () => {
+    row.classList.toggle('more-left', row.scrollLeft > 2);
+    row.classList.toggle('more-right', row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
+  };
+  row.addEventListener('scroll', update, { passive: true });
+  new ResizeObserver(update).observe(row);
+  update();
+}

@@ -14,7 +14,7 @@ import { download, openFile, saveAs, toSTL, to3MF, safeName, storeGet, storeSet 
 import { parseSTL, encodeMesh } from './stl.js';
 import { sketchFrame, faceFrame, toWorld, entityPolyline } from './profiles.js';
 import { ICONS } from './icons.js';
-import { el, field, num } from './ui.js';
+import { el, field, num, contextMenu, scrollHints } from './ui.js';
 
 const $ = (s) => document.querySelector(s);
 // Storage key from when the app was called PrintCAD; kept so existing auto-saves still load.
@@ -1003,6 +1003,8 @@ class App {
       this.active?.tool && document.querySelectorAll('[data-sketch-tool]').forEach((b) => b.classList.toggle('active', b.dataset.sketchTool === this.active.tool));
     }
     bar.append(groups);
+    scrollHints(groups);
+    if ($('#toolrow')) scrollHints($('#toolrow'));
   }
 
   bindChrome() {
@@ -1014,6 +1016,12 @@ class App {
     $('#btn-stl').onclick = () => this.exportMesh('stl');
     $('#btn-3mf').onclick = () => this.exportMesh('3mf');
     $('#btn-step').onclick = () => this.exportMesh('step');
+    // Narrow screens: the three exports share one button.
+    $('#btn-export').onclick = (ev) => {
+      const r = ev.currentTarget.getBoundingClientRect();
+      contextMenu(r.left, r.bottom + 2, ['stl', '3mf', 'step'].map((k) => ({ label: `Export ${k.toUpperCase()}…`, onClick: () => this.exportMesh(k) })));
+    };
+    scrollHints($('#topbar .menu'));
     $('#btn-undo').onclick = () => this.undo();
     $('#btn-redo').onclick = () => this.redo();
     $('#btn-home').onclick = () => this.vp.home();

@@ -98,7 +98,10 @@ input, select { font: inherit; color: inherit; }
 #viewport { position: absolute; inset: 0; }
 #viewport canvas { display: block; outline: none; }
 #viewcube-wrap { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-#viewcube canvas { cursor: pointer; }
+#viewcube { position: relative; }
+#viewcube canvas { cursor: pointer; display: block; }
+.vc-label { position: absolute; transform: translate(-50%, -50%); pointer-events: none; user-select: none;
+  font-size: 10px; font-weight: 700; color: #3a4550; letter-spacing: .3px; white-space: nowrap; }
 .view-buttons { display: flex; gap: 4px; align-items: center; }
 .view-buttons .btn.icon { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 3px; cursor: pointer; }
 .view-buttons .btn.icon svg { width: 16px; height: 16px; display: block; }
@@ -188,6 +191,12 @@ input, select { font: inherit; color: inherit; }
 .context-menu hr { border: 0; border-top: 1px solid var(--border); margin: 3px 0; }
 
 /* ---------- smaller screens ---------- */
+.narrow-only { display: none; }
+#topbar .btn.narrow-only { display: none; }
+/* A row that scrolls sideways fades at an edge with more past it (see scrollHints). */
+.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); }
+.more-left { mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent); }
+.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent); }
 #toolrow .tool, .tool { flex: none; }
 #topbar .logo, #kernel-state { flex: none; }
 
@@ -207,6 +216,10 @@ input, select { font: inherit; color: inherit; }
     box-shadow: 4px 0 14px rgba(0,0,0,.18); }
   #topbar .tree-toggle { display: block; }
   #topbar .logo { display: none; }
+  #topbar .wide-only, #topbar .btn.wide-only { display: none; }
+  #topbar .btn.narrow-only { display: block; }
+  /* Only while loading, or if it failed. */
+  #kernel-state.ok { display: none; }
   #footer { grid-template-columns: 1fr minmax(120px, 35%); }
 }
 

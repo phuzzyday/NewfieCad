@@ -2,33 +2,18 @@
 
 import * as THREE from 'three';
 
+// Faces are plain colours (a shade per direction, so the cube reads as solid), and the words are
+// page text over each face facing the camera. Painting words into textures goes through a 2D
+// canvas, which privacy browsers (Brave Shields) block, leaving the faces black.
 const FACES = [
-  { n: [0, 0, 1], up: [0, 1, 0], label: 'TOP' },
-  { n: [0, 0, -1], up: [0, 1, 0], label: 'BOTTOM' },
-  { n: [0, -1, 0], up: [0, 0, 1], label: 'FRONT' },
-  { n: [0, 1, 0], up: [0, 0, 1], label: 'BACK' },
-  { n: [1, 0, 0], up: [0, 0, 1], label: 'RIGHT' },
-  { n: [-1, 0, 0], up: [0, 0, 1], label: 'LEFT' },
+  { n: [0, 0, 1], label: 'TOP', color: 0xf6f8fa },
+  { n: [0, 0, -1], label: 'BOTTOM', color: 0xf6f8fa },
+  { n: [0, -1, 0], label: 'FRONT', color: 0xe9edf1 },
+  { n: [0, 1, 0], label: 'BACK', color: 0xe9edf1 },
+  { n: [1, 0, 0], label: 'RIGHT', color: 0xdde3e9 },
+  { n: [-1, 0, 0], label: 'LEFT', color: 0xdde3e9 },
 ];
-
-function labelTexture(text) {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  g.fillStyle = '#f4f6f8';
-  g.fillRect(0, 0, 128, 128);
-  g.strokeStyle = '#9aa5b1';
-  g.lineWidth = 4;
-  g.strokeRect(2, 2, 124, 124);
-  g.fillStyle = '#3a4550';
-  g.font = `bold ${text.length > 5 ? 22 : 26}px system-ui, sans-serif`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, 64, 66);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
+const SIZE = 110;
 
 export class ViewCube {
   constructor(el, viewport) {
@@ -36,17 +21,22 @@ export class ViewCube {
     this.el = el;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setSize(110, 110);
+    this.renderer.setSize(SIZE, SIZE);
     el.appendChild(this.renderer.domElement);
+    this.labels = FACES.map((f) => {
+      const span = document.createElement('span');
+      span.className = 'vc-label';
+      span.textContent = f.label;
+      el.appendChild(span);
+      return { span, n: new THREE.Vector3(...f.n) };
+    });
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-0.95, 0.95, 0.95, -0.95, 0.1, 10);
     this.cube = new THREE.Group();
     for (const f of FACES) {
-      const n = new THREE.Vector3(...f.n), up = new THREE.Vector3(...f.up);
-      const right = up.clone().cross(n);
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: labelTexture(f.label) }));
-      mesh.matrixAutoUpdate = false;
-      mesh.matrix.makeBasis(right, up, n).setPosition(n.multiplyScalar(0.5));
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: f.color }));
+      mesh.lookAt(...f.n);
+      mesh.position.set(...f.n.map((v) => v / 2));
       this.cube.add(mesh);
     }
     const box = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x7d8894 }));
@@ -84,5 +74,16 @@ export class ViewCube {
     this.camera.position.set(0, 0, 3).applyQuaternion(q);
     this.camera.quaternion.copy(q);
     this.renderer.render(this.scene, this.camera);
+    // Each word sits on its face's centre while that face turns towards the camera, fading in.
+    const toCam = this.camera.position.clone().normalize();
+    for (const { span, n } of this.labels) {
+      const facing = n.dot(toCam);
+      const show = facing > 0.2;
+      span.style.opacity = show ? Math.min(1, (facing - 0.2) / 0.35) : 0;
+      if (!show) continue;
+      const p = n.clone().multiplyScalar(0.5).project(this.camera);
+      span.style.left = `${((p.x + 1) / 2) * SIZE}px`;
+      span.style.top = `${((1 - p.y) / 2) * SIZE}px`;
+    }
   }
 }
