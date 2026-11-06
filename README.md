@@ -25,8 +25,7 @@ Either one serves the folder at <http://127.0.0.1:8765/> and opens your browser.
 Use a different port with `start.bat 9000` or `sh start.sh 9000`. Press Ctrl+C in the window to stop.
 
 On a tablet or a phone held sideways, the layout fits the screen: the toolbar scrolls sideways, and on narrow
-screens the ☰ button at the top left slides the browser tree in and out. Touch controls for turning the view
-aren't in yet, so a mouse or trackpad is still needed for that.
+screens the ☰ button at the top left slides the browser tree in and out.
 
 ## Mouse controls
 
@@ -38,6 +37,9 @@ aren't in yet, so a mouse or trackpad is still needed for that.
 | Laptop / no middle button | Right-drag orbits, Shift + right-drag pans |
 | Standard views | Click a face, edge or corner of the view cube |
 | Home / Fit | Buttons under the view cube, or F6 to fit |
+
+On a touchscreen: one finger turns the view (or drags an arrow or handle it starts on), two fingers pan,
+pinch to zoom, tap to select or place, and double-tap empty space to fit the model in view.
 | Visual style | Drop-down under the view cube: Shaded, Shaded with visible edges, Shaded with hidden edges (dashed), Wireframe, Wireframe with visible edges only, or See-through |
 
 ## Selecting

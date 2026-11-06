@@ -96,7 +96,8 @@ input, select { font: inherit; color: inherit; }
 
 #viewport-wrap { position: relative; min-width: 0; min-height: 0; }
 #viewport { position: absolute; inset: 0; }
-#viewport canvas { display: block; outline: none; }
+/* Fingers on the model are ours (turn, pan, pinch), not the browser's scrolling and zooming. */
+#viewport canvas { display: block; outline: none; touch-action: none; }
 #viewcube-wrap { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 #viewcube { position: relative; }
 #viewcube canvas { cursor: pointer; display: block; }

@@ -724,7 +724,11 @@ export class Viewport {
     this.boxEl.hidden = true;
     this.el.appendChild(this.boxEl);
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.bindTouch(dom, tool);
+    // Below: the mouse. Fingers and pens are handled in bindTouch.
+    const touch = (ev) => ev.pointerType === 'touch' || ev.pointerType === 'pen';
     dom.addEventListener('pointerdown', (ev) => {
+      if (touch(ev)) return;
       dom.setPointerCapture(ev.pointerId);
       const orbit = (ev.button === 1 && ev.shiftKey) || (ev.button === 2 && !ev.shiftKey);
       const pan = (ev.button === 1 && !ev.shiftKey) || (ev.button === 2 && ev.shiftKey);
@@ -746,6 +750,7 @@ export class Viewport {
       }
     });
     dom.addEventListener('pointermove', (ev) => {
+      if (touch(ev)) return;
       if (drag?.mode === 'tool') { tool()?.onDrag?.(ev); return; }
       if (drag && drag.mode !== 'click') {
         if (Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) > 4) drag.moved = true;
@@ -762,6 +767,7 @@ export class Viewport {
       tool()?.onMove?.(ev);
     });
     dom.addEventListener('pointerup', (ev) => {
+      if (touch(ev)) return;
       if (drag?.mode === 'click') {
         if (drag.box) this.finishBox(drag, ev, tool());
         else if (!drag.moved) tool()?.onClick?.(ev);
@@ -772,13 +778,91 @@ export class Viewport {
       drag = null;
       dom.style.cursor = '';
     });
-    dom.addEventListener('dblclick', (ev) => tool()?.onDblClick?.(ev));
+    // A double tap also makes the browser send a dblclick; bindTouch has handled it already.
+    dom.addEventListener('dblclick', (ev) => { if (performance.now() - this.lastTouch > 1000) tool()?.onDblClick?.(ev); });
     dom.addEventListener('wheel', (ev) => {
       ev.preventDefault();
       this.anim = null;
       this.zoomAt(ev, ev.deltaY);
     }, { passive: false });
     dom.addEventListener('pointerleave', () => tool()?.onLeave?.());
+  }
+
+  // Touch: one finger turns the view (or drags a handle it starts on), two fingers pan and
+  // pinch to zoom. A tap is a click; a double tap on empty space fits the model in view.
+  bindTouch(dom, tool) {
+    const touch = (ev) => ev.pointerType === 'touch' || ev.pointerType === 'pen';
+    const fingers = new Map(); // pointer id -> { x, y }
+    let g = null; // the gesture: { mode: 'one' | 'tool' | 'two' | 'done', ... }
+    let lastTap = null;
+    this.lastTouch = -Infinity;
+    const MOVE = 8; // pixels a finger may wander before a tap becomes a drag
+    const pair = () => {
+      const [a, b] = [...fingers.values()];
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+    };
+    dom.addEventListener('pointerdown', (ev) => {
+      if (!touch(ev)) return;
+      ev.preventDefault();
+      try { dom.setPointerCapture(ev.pointerId); } catch { /* pointer already gone */ }
+      this.lastTouch = performance.now();
+      fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      this.anim = null;
+      if (fingers.size === 1) {
+        // Starting on a handle, arrow or shape drags it, like the mouse.
+        if (tool()?.onPointerDown?.(ev)) { g = { mode: 'tool' }; return; }
+        const meshes = this.bodyData.filter((b) => b.mesh).map((b) => b.mesh);
+        const hit = this.ray(ev).intersectObjects(meshes)[0];
+        g = { mode: 'one', x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, moved: false, t0: performance.now(),
+          pivot: hit ? hit.point.clone() : this.target.clone() };
+      } else if (fingers.size === 2 && g?.mode === 'one') {
+        g = { mode: 'two', ...pair() };
+      }
+    });
+    dom.addEventListener('pointermove', (ev) => {
+      if (!touch(ev) || !fingers.has(ev.pointerId)) return;
+      fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (g?.mode === 'tool') { tool()?.onDrag?.(ev); return; }
+      if (g?.mode === 'one') {
+        if (!g.moved && Math.hypot(ev.clientX - g.x0, ev.clientY - g.y0) < MOVE) return;
+        g.moved = true;
+        this.orbit(ev.clientX - g.x, ev.clientY - g.y, g.pivot);
+        g.x = ev.clientX; g.y = ev.clientY;
+      } else if (g?.mode === 'two' && fingers.size === 2) {
+        const now = pair();
+        this.pan(now.x - g.x, now.y - g.y);
+        // Spreading the fingers zooms in, towards the point between them.
+        if (Math.abs(now.d - g.d) > 0.5) this.zoomAt({ clientX: now.x, clientY: now.y }, Math.log(g.d / now.d) / 0.0012);
+        Object.assign(g, now);
+      }
+    });
+    const up = (ev) => {
+      if (!touch(ev) || !fingers.has(ev.pointerId)) return;
+      fingers.delete(ev.pointerId);
+      this.lastTouch = performance.now();
+      if (g?.mode === 'tool') { if (ev.type === 'pointerup') tool()?.onDragEnd?.(ev); g = null; return; }
+      if (g?.mode === 'one' && !g.moved && ev.type === 'pointerup' && performance.now() - g.t0 < 600) this.tap(ev, tool(), lastTap, (t) => { lastTap = t; });
+      // Lifting one of two fingers ends the gesture; the other mustn't start turning the view.
+      g = fingers.size ? { mode: 'done' } : null;
+    };
+    dom.addEventListener('pointerup', up);
+    dom.addEventListener('pointercancel', up);
+  }
+
+  // A tap: hover there (tools light up what's under the pointer first), then click. A second tap
+  // close by soon after is a double tap: it fits the model in view on empty space.
+  tap(ev, t, last, setLast) {
+    const now = performance.now();
+    const double = last && now - last.t < 350 && Math.hypot(ev.clientX - last.x, ev.clientY - last.y) < 30;
+    setLast(double ? null : { t: now, x: ev.clientX, y: ev.clientY });
+    if (double) {
+      const meshes = this.bodyData.filter((b) => b.mesh).map((b) => b.mesh);
+      if (!this.ray(ev).intersectObjects(meshes).length) { this.fit(); return; }
+      t?.onDblClick?.(ev);
+      return;
+    }
+    t?.onMove?.(ev);
+    t?.onClick?.(ev);
   }
 
   boxRect(drag, ev) {
