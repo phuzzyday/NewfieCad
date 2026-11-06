@@ -1006,6 +1006,8 @@ class App {
   }
 
   bindChrome() {
+    // Narrow screens only: the tree slides in over the model.
+    $('#btn-tree').onclick = () => document.body.classList.toggle('show-tree');
     $('#btn-new').onclick = () => this.newDocument();
     $('#btn-open').onclick = () => this.openProject();
     $('#btn-save').onclick = () => this.saveFile();

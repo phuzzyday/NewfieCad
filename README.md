@@ -24,6 +24,10 @@ If `lib` is missing or incomplete, run `python fetch_libs.py` once (with interne
 Either one serves the folder at <http://127.0.0.1:8765/> and opens your browser.
 Use a different port with `start.bat 9000` or `sh start.sh 9000`. Press Ctrl+C in the window to stop.
 
+On a tablet or a phone held sideways, the layout fits the screen: the toolbar scrolls sideways, and on narrow
+screens the ☰ button at the top left slides the browser tree in and out. Touch controls for turning the view
+aren't in yet, so a mouse or trackpad is still needed for that.
+
 ## Mouse controls
 
 | Action | Mouse |

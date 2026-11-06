@@ -16,14 +16,17 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
-body { display: grid; grid-template-rows: 36px auto 1fr auto; }
+/* One column as wide as the window: wide rows (the toolbar) scroll instead of widening the page. */
+body { display: grid; grid-template-rows: 36px auto 1fr auto; grid-template-columns: minmax(0, 1fr); }
 button { font: inherit; color: inherit; }
 input, select { font: inherit; color: inherit; }
 
 /* ---------- top bar ---------- */
 #topbar { display: flex; align-items: center; gap: 12px; padding: 0 10px; background: #2d3540; color: #e9edf2; }
 .logo { font-weight: 700; letter-spacing: .5px; }
-.menu { display: flex; align-items: center; gap: 2px; flex: 1; }
+.menu { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.menu > * { flex: none; }
+#topbar .tree-toggle { display: none; font-size: 17px; line-height: 1; padding: 3px 8px; }
 .menu .sep { width: 1px; height: 18px; background: #55606d; margin: 0 6px; }
 #topbar .btn.flat, #topbar .btn.icon { background: none; border: 0; color: #e9edf2; padding: 5px 9px; border-radius: 4px; cursor: pointer; }
 #topbar .btn.flat:hover, #topbar .btn.icon:hover { background: #404b58; }
@@ -59,7 +62,7 @@ input, select { font: inherit; color: inherit; }
 .sk-label.dim { color: #1f3550; }
 .sk-label.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .sel-info.done { background: #e2f5e8; color: #1d6b38; }
-#toolrow { display: flex; align-items: center; gap: 2px; padding: 3px 10px; background: var(--accent-soft); border-top: 1px solid var(--border); }
+#toolrow { display: flex; align-items: center; gap: 2px; padding: 3px 10px; overflow-x: auto; background: var(--accent-soft); border-top: 1px solid var(--border); }
 #toolrow .row-title { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: .5px; margin-right: 8px; }
 #toolrow .tool { width: 76px; }
 .row-close { margin-left: auto; background: none; border: 0; font-size: 18px; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 8px; border-radius: 4px; }
@@ -184,8 +187,47 @@ input, select { font: inherit; color: inherit; }
 .context-menu button:hover { background: var(--accent-soft); }
 .context-menu hr { border: 0; border-top: 1px solid var(--border); margin: 3px 0; }
 
-@media (max-width: 900px) {
-  #main { grid-template-columns: 1fr auto; }
-  #browser { display: none; }
+/* ---------- smaller screens ---------- */
+#toolrow .tool, .tool { flex: none; }
+#topbar .logo, #kernel-state { flex: none; }
+
+/* Tablets in landscape: slimmer side panels. */
+@media (max-width: 1200px) {
+  #main { grid-template-columns: 190px 1fr auto; }
+  #panel { width: 245px; }
+  .field { grid-template-columns: 1fr 105px; }
   #nav-help { display: none; }
+}
+
+/* Upright tablets and phones: the tree slides in over the model from the ☰ button. */
+@media (max-width: 900px) {
+  #main { grid-template-columns: minmax(0, 1fr) auto; position: relative; }
+  #browser { display: none; }
+  body.show-tree #browser { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 240px; z-index: 20;
+    box-shadow: 4px 0 14px rgba(0,0,0,.18); }
+  #topbar .tree-toggle { display: block; }
+  #topbar .logo { display: none; }
+  #footer { grid-template-columns: 1fr minmax(120px, 35%); }
+}
+
+/* Phones held sideways (short screens): slim bars so the model gets the height. */
+@media (max-height: 520px) {
+  body { grid-template-rows: 30px auto 1fr auto; }
+  #toolbar .tabs { padding-top: 2px; }
+  #toolbar .tab { padding: 1px 10px; }
+  .group-title { display: none; }
+  .group { padding: 0 4px; }
+  .tool { width: 52px; padding: 2px 1px; }
+  .tool svg { width: 20px; height: 20px; }
+  .tool span { font-size: 9.5px; }
+  #toolrow { padding: 1px 6px; }
+  #toolrow .tool { width: 60px; }
+  #footer { min-height: 34px; padding: 2px 8px; }
+  .tl-item { width: 28px; height: 26px; }
+  .tl-item svg { width: 18px; height: 18px; }
+  #panel { width: 230px; }
+  .panel-head { padding: 5px 10px; }
+  #panel-body { padding: 6px 10px; gap: 6px; }
+  #panel-buttons { padding: 5px 10px; }
+  #viewcube-wrap { transform: scale(.8); transform-origin: top right; }
 }
